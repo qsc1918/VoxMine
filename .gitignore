@@ -1,0 +1,38 @@
+# Build output
+/build/
+
+# Game assets (extracted from Minecraft, not redistributed per Mojang EULA)
+/assets/
+
+# Root-level test screenshots
+/*.png
+
+# Compiled objects / libraries / executables
+*.o
+*.obj
+*.exe
+*.a
+*.lib
+*.dll
+
+# IDE / editor configs
+.vscode/
+.idea/
+.vs/
+*.suo
+*.user
+*.swp
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# CMake user presets
+CMakeUserPresets.json
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
