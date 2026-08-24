@@ -27,13 +27,16 @@ struct Buffer2 {
 
 class Renderer {
 public:
-    bool init(VkCtx& ctx, World& world, Window& win, const std::string& assetDir,
+    bool init(VkCtx& ctx, Window& win, const std::string& assetDir,
               const std::string& shaderDir);
     void shutdown(VkCtx& ctx);
 
     // Acquires image, records and submits one frame. Returns false if swapchain was recreated.
     bool render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, float dt,
                 float renderDist, bool drawUI);
+
+    // Bind the world to render (may change when entering a new world).
+    void setWorld(World& w);
 
     // GPU-side chunk mesh management (main thread only)
     void uploadChunks(VkCtx& ctx);
@@ -62,6 +65,7 @@ private:
     void captureScreenshot(VkCtx& ctx, uint32_t imageIndex);
 
     World* world_ = nullptr;
+    VkCtx* ctxPtr_ = nullptr;
     Atlas atlas_;
 
     VkDescriptorSetLayout terrainDSL_ = VK_NULL_HANDLE;

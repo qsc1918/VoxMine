@@ -59,6 +59,7 @@ struct VkCtx {
 
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props) const;
     VkFormat pickDepthFormat();
+    void selectSwapFormat();
     VkPhysicalDeviceProperties props = {};
     VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
 };

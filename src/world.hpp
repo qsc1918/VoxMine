@@ -115,6 +115,14 @@ public:
 
     void markDirty(int cx, int cz);
 
+    // Recorded block edits (x,y,z,blockId) for saving; x,y,z absolute coords.
+    const std::vector<std::array<int, 4>>& editLog() const { return editLog_; }
+    void clearEditLog() { editLog_.clear(); }
+
+    // Synchronously create + generate a chunk (used when loading a save, where the
+    // worker pool has no tasks yet, so there is no race).
+    void forceGenerateChunk(int cx, int cz);
+
     size_t chunkCount() const {
         std::lock_guard<std::mutex> lk(mapLock_);
         return chunks_.size();
@@ -152,4 +160,6 @@ private:
     std::atomic<bool> running_{false};
 
     float lastPx_ = 0.0f, lastPz_ = 0.0f;
+
+    std::vector<std::array<int, 4>> editLog_;
 };

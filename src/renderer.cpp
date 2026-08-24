@@ -159,9 +159,9 @@ static VkPipeline makePipeline(VkCtx& ctx, VkRenderPass rp, VkPipelineLayout lay
 // ---------------------------------------------------------------------------
 // init / shutdown
 // ---------------------------------------------------------------------------
-bool Renderer::init(VkCtx& ctx, World& world, Window& win, const std::string& assetDir,
+bool Renderer::init(VkCtx& ctx, Window& win, const std::string& assetDir,
                     const std::string& shaderDir) {
-    world_ = &world;
+    ctxPtr_ = &ctx;
     windowW_ = win.width();
     windowH_ = win.height();
 
@@ -280,11 +280,14 @@ bool Renderer::init(VkCtx& ctx, World& world, Window& win, const std::string& as
         return false;
     }
 
-    world.onDestroyChunk = [this, &ctx](Chunk& c) { destroyChunkBuffers(ctx, c); };
-
     // screenshot buffer
     shotBufReady_ = false;
     return true;
+}
+
+void Renderer::setWorld(World& w) {
+    world_ = &w;
+    w.onDestroyChunk = [this](Chunk& c) { destroyChunkBuffers(*ctxPtr_, c); };
 }
 
 void Renderer::createAtlasTexture(VkCtx& ctx) {

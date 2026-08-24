@@ -153,10 +153,11 @@ bool VkCtx::init(Window& win, int w, int h) {
     present = graphics;
 
     depthFormat = pickDepthFormat();
+    selectSwapFormat();
 
-    // ---- render pass ----
+    // ---- render pass (created once; format is stable, so it is never recreated) ----
     VkAttachmentDescription color = {};
-    color.format = VK_FORMAT_B8G8R8A8_UNORM;
+    color.format = swapFormat;
     color.samples = VK_SAMPLE_COUNT_1_BIT;
     color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -250,6 +251,18 @@ VkFormat VkCtx::pickDepthFormat() {
     return VK_FORMAT_D32_SFLOAT;
 }
 
+void VkCtx::selectSwapFormat() {
+    uint32_t fmtCount = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(phys, surface, &fmtCount, nullptr);
+    std::vector<VkSurfaceFormatKHR> fmts(fmtCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(phys, surface, &fmtCount, fmts.data());
+    swapFormat = VK_FORMAT_B8G8R8A8_UNORM;
+    for (auto& f : fmts) {
+        if (f.format == VK_FORMAT_B8G8R8A8_SRGB) { swapFormat = VK_FORMAT_B8G8R8A8_SRGB; break; }
+        else if (f.format == VK_FORMAT_B8G8R8A8_UNORM) swapFormat = VK_FORMAT_B8G8R8A8_UNORM;
+    }
+}
+
 void VkCtx::destroySwapchainObjects() {
     vkDeviceWaitIdle(device);
     lastSubmitFence = VK_NULL_HANDLE;
@@ -314,17 +327,7 @@ bool VkCtx::recreateSwapchain(int w, int h) {
     destroyDepth();
 
     extent = {std::max(1u, (uint32_t)w), std::max(1u, (uint32_t)h)};
-
-    // choose surface format
-    uint32_t fmtCount = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(phys, surface, &fmtCount, nullptr);
-    std::vector<VkSurfaceFormatKHR> fmts(fmtCount);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(phys, surface, &fmtCount, fmts.data());
-    swapFormat = VK_FORMAT_B8G8R8A8_UNORM;
-    for (auto& f : fmts) {
-        if (f.format == VK_FORMAT_B8G8R8A8_SRGB) { swapFormat = VK_FORMAT_B8G8R8A8_SRGB; break; }
-        if (f.format == VK_FORMAT_B8G8R8A8_UNORM) swapFormat = VK_FORMAT_B8G8R8A8_UNORM;
-    }
+    selectSwapFormat();
 
     VkSurfaceCapabilitiesKHR caps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys, surface, &caps);
@@ -351,48 +354,6 @@ bool VkCtx::recreateSwapchain(int w, int h) {
     vkGetSwapchainImagesKHR(device, swapchain, &imgCount, nullptr);
     swapImages.resize(imgCount);
     vkGetSwapchainImagesKHR(device, swapchain, &imgCount, swapImages.data());
-
-    // framebuffers must use the real swap format; rebuild render pass attachments if needed.
-    // We create the color attachment description dynamically below via a stored format,
-    // so recreate the render pass if it differs from the initial one.
-    if (renderPass) {
-        // The render pass was created with UNORM format assumption; SRGB works the same,
-        // so we can keep it. Format identity is only used for the attachment; SRGB vs
-        // UNORM swaps are allowed at framebuffer level? Not strictly. Recreate to be safe.
-        VkAttachmentDescription atts[2];
-        atts[0].flags = 0;
-        atts[0].format = swapFormat;
-        atts[0].samples = VK_SAMPLE_COUNT_1_BIT;
-        atts[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        atts[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        atts[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        atts[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        atts[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        atts[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        atts[1] = atts[0];
-        atts[1].format = depthFormat;
-        atts[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        atts[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        atts[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-        VkAttachmentReference colorRef = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        VkAttachmentReference depthRef = {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-        VkSubpassDescription subpass = {};
-        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments = &colorRef;
-        subpass.pDepthStencilAttachment = &depthRef;
-        VkRenderPassCreateInfo rpi = {};
-        rpi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        rpi.attachmentCount = 2;
-        rpi.pAttachments = atts;
-        rpi.subpassCount = 1;
-        rpi.pSubpasses = &subpass;
-        vkDestroyRenderPass(device, renderPass, nullptr);
-        renderPass = VK_NULL_HANDLE;
-        if (vkCreateRenderPass(device, &rpi, nullptr, &renderPass) != VK_SUCCESS)
-            return false;
-    }
 
     for (VkImage img : swapImages) {
         VkImageViewCreateInfo vci = {};

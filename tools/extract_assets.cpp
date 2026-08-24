@@ -1,9 +1,9 @@
 // extract_assets.cpp
-// Small utility: pick a Minecraft .jar and extract the block textures this game
-// needs into assets/block/ next to the executable.
+// Small utility: pick a Minecraft .jar and extract the block + GUI textures this game
+// needs into assets/ next to the executable.
 //
 // Build:
-//   g++ tools/extract_assets.cpp -o extract_assets.exe -lcomdlg32 -lshlwapi
+//   g++ tools/extract_assets.cpp -o extract_assets.exe -lcomdlg32
 // Run:
 //   extract_assets.exe [path/to/minecraft.jar]
 //
@@ -18,28 +18,39 @@
 
 namespace fs = std::filesystem;
 
-static const char* kNeededFiles[] = {
-    "grass_block_top.png",
-    "grass_block_side.png",
-    "dirt.png",
-    "stone.png",
-    "bedrock.png",
-    "cobblestone.png",
-    "oak_planks.png",
-    "oak_log.png",
-    "oak_log_top.png",
-    "oak_leaves.png",
-    "sand.png",
-    "gravel.png",
-    "coal_ore.png",
-    "iron_ore.png",
-    "gold_ore.png",
-    "diamond_ore.png",
-    "redstone_ore.png",
-    "water_still.png",
-    "snow.png",
-    "glass.png",
-    "white_concrete.png",
+// (path inside the jar, destination relative path under assets/)
+struct AssetEntry {
+    const char* src;
+    const char* dst;
+};
+
+static const AssetEntry kAssets[] = {
+    // block textures (assets/block)
+    {"assets/minecraft/textures/block/grass_block_top.png",       "block/grass_block_top.png"},
+    {"assets/minecraft/textures/block/grass_block_side.png",       "block/grass_block_side.png"},
+    {"assets/minecraft/textures/block/dirt.png",                   "block/dirt.png"},
+    {"assets/minecraft/textures/block/stone.png",                  "block/stone.png"},
+    {"assets/minecraft/textures/block/bedrock.png",                "block/bedrock.png"},
+    {"assets/minecraft/textures/block/cobblestone.png",            "block/cobblestone.png"},
+    {"assets/minecraft/textures/block/oak_planks.png",             "block/oak_planks.png"},
+    {"assets/minecraft/textures/block/oak_log.png",                "block/oak_log.png"},
+    {"assets/minecraft/textures/block/oak_log_top.png",            "block/oak_log_top.png"},
+    {"assets/minecraft/textures/block/oak_leaves.png",             "block/oak_leaves.png"},
+    {"assets/minecraft/textures/block/sand.png",                   "block/sand.png"},
+    {"assets/minecraft/textures/block/gravel.png",                 "block/gravel.png"},
+    {"assets/minecraft/textures/block/coal_ore.png",               "block/coal_ore.png"},
+    {"assets/minecraft/textures/block/iron_ore.png",               "block/iron_ore.png"},
+    {"assets/minecraft/textures/block/gold_ore.png",               "block/gold_ore.png"},
+    {"assets/minecraft/textures/block/diamond_ore.png",            "block/diamond_ore.png"},
+    {"assets/minecraft/textures/block/redstone_ore.png",           "block/redstone_ore.png"},
+    {"assets/minecraft/textures/block/water_still.png",            "block/water_still.png"},
+    {"assets/minecraft/textures/block/snow.png",                   "block/snow.png"},
+    {"assets/minecraft/textures/block/glass.png",                  "block/glass.png"},
+    {"assets/minecraft/textures/block/white_concrete.png",         "block/white_concrete.png"},
+    // GUI textures (assets/gui)
+    {"assets/minecraft/textures/gui/sprites/widget/button.png",               "gui/button.png"},
+    {"assets/minecraft/textures/gui/sprites/widget/button_highlighted.png",   "gui/button_highlighted.png"},
+    {"assets/minecraft/textures/gui/sprites/widget/text_field.png",           "gui/text_field.png"},
 };
 
 static std::string pickJarFile() {
@@ -55,17 +66,14 @@ static std::string pickJarFile() {
     return std::string(buf);
 }
 
-static std::string exeDir() {
-    char buf[MAX_PATH];
-    GetModuleFileNameA(nullptr, buf, MAX_PATH);
-    std::string p(buf);
-    size_t pos = p.find_last_of("\\/");
-    return pos == std::string::npos ? "." : p.substr(0, pos);
+static std::string outputRoot() {
+    // write assets/ relative to the current working directory (run from project root)
+    return fs::current_path().string();
 }
 
 static bool runTar(const std::string& jar, const std::string& outDir) {
-    // bsdtar (bundled with Windows 10+) can read zip/jar containers.
-    std::string cmd = "tar -xf \"" + jar + "\" -C \"" + outDir + "\" assets/minecraft/textures/block 2>nul";
+    std::string cmd = "tar -xf \"" + jar + "\" -C \"" + outDir
+                      + "\" assets/minecraft/textures/block assets/minecraft/textures/gui/sprites/widget 2>nul";
     return system(cmd.c_str()) == 0;
 }
 
@@ -80,6 +88,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    bool haveOldTextField = false;
+    {
+        // check which text_field path exists in this jar
+        std::string chk = "tar -tf \"" + jar + "\" 2>nul | findstr /C:\"textures/gui/sprites/widget/text_field.png\" >nul";
+        haveOldTextField = system(chk.c_str()) == 0;
+        (void)haveOldTextField;
+    }
+
     fs::path tmp = fs::temp_directory_path() / "voxmine_assets";
     fs::remove_all(tmp);
     fs::create_directories(tmp);
@@ -91,24 +107,29 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    fs::path srcRoot = tmp / "assets" / "minecraft" / "textures" / "block";
-    fs::path dstDir = fs::path(exeDir()) / "assets" / "block";
-    fs::create_directories(dstDir);
-
+    fs::path dstRoot = fs::path(outputRoot()) / "assets";
     int copied = 0, missing = 0;
-    for (const char* f : kNeededFiles) {
-        fs::path src = srcRoot / f;
+    for (const AssetEntry& e : kAssets) {
+        fs::path src = tmp / e.src;
+        fs::path dst = dstRoot / e.dst;
+        fs::create_directories(dst.parent_path());
         if (!fs::exists(src)) {
-            printf("  MISSING: %s\n", f);
-            missing++;
-            continue;
+            // fallback: the dark text field path
+            fs::path alt = tmp / "assets/minecraft/textures/gui/sprites/widget/text_field.png";
+            if (std::string(e.src).find("text_field") != std::string::npos && fs::exists(alt)) {
+                src = alt;
+            } else {
+                printf("  MISSING: %s\n", e.src);
+                missing++;
+                continue;
+            }
         }
-        fs::copy_file(src, dstDir / f, fs::copy_options::overwrite_existing);
+        fs::copy_file(src, dst, fs::copy_options::overwrite_existing);
         copied++;
     }
 
-    printf("Done: %d textures copied to %s, %d missing.\n", copied,
-           dstDir.string().c_str(), missing);
+    printf("Done: %d resources copied to %s, %d missing.\n", copied,
+           dstRoot.string().c_str(), missing);
     fs::remove_all(tmp);
     return 0;
 }

@@ -27,6 +27,8 @@ add_executable(voxmine
   src/camera.cpp
   src/player.cpp
   src/renderer.cpp
+  src/save.cpp
+  src/menu.cpp
   src/volk_impl.c
 )
 
@@ -43,6 +45,7 @@ set(SHADER_FILES
   water.vert water.frag
   ui.vert ui.frag
   sky.vert sky.frag
+  menu.vert menu.frag
 )
 set(SPV_TARGETS "")
 foreach(s ${SHADER_FILES})

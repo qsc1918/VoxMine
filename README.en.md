@@ -41,7 +41,15 @@ build/voxmine.exe
 | Right click | Place block |
 | 1..9 / scroll | Select hotbar slot |
 | T | Time-lapse (day/night speed-up) |
-| Esc | Quit / close inventory |
+| Esc | Pause menu in-game (or close inventory); go back in menus |
+
+The game boots into a title menu: Singleplayer / Options / Quit.
+- Singleplayer opens save management (new worlds are infinite).
+- Options → Video settings (vsync toggle).
+- Press Esc in-game for the pause menu (Save & return to title / Options).
+
+Saves are stored as simple text files under `saves/` next to the .exe (seed, spawn,
+block edits); loading regenerates the world from the seed and re-applies edits.
 
 ## Command line options
 

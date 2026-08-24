@@ -68,11 +68,28 @@ bool World::setBlock(int x, int y, int z, uint8_t id) {
         if (c->blocks[chunkIndex(lx, y, lz)] == id) return false;
         c->blocks[chunkIndex(lx, y, lz)] = id;
     }
+    editLog_.push_back({x, y, z, (int)id});
     markDirty(cx, cz);
     return true;
 }
 
 void World::markDirty(int cx, int cz) {
+    scheduleMesh(cx, cz);
+}
+
+void World::forceGenerateChunk(int cx, int cz) {
+    uint64_t key = chunkKey(cx, cz);
+    std::shared_ptr<Chunk> c;
+    {
+        std::lock_guard<std::mutex> lk(mapLock_);
+        auto it = chunks_.find(key);
+        if (it == chunks_.end()) { c = std::make_shared<Chunk>(); chunks_[key] = c; }
+        else c = it->second;
+    }
+    if (c->state.load() >= 1) return;
+    gen::generateColumn(seed, cx, cz, c->blocks.data());
+    c->state.store(1);
+    c->dirty.store(true);
     scheduleMesh(cx, cz);
 }
 
