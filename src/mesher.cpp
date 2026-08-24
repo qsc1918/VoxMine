@@ -69,17 +69,11 @@ ChunkMeshData buildChunkMesh(const MeshView& view) {
                 if (id == B_AIR) continue;
 
                 if (id == B_WATER) {
-                    // collect faces
-                    int faces[6];
-                    int nf = 0;
-                    if (!waterCull(view.at(x + 1, y, z))) faces[nf++] = F_PX;
-                    if (!waterCull(view.at(x - 1, y, z))) faces[nf++] = F_NX;
-                    if (!waterCull(view.at(x, y + 1, z))) faces[nf++] = F_PY;
-                    if (!waterCull(view.at(x, y - 1, z))) faces[nf++] = F_NY;
-                    if (!waterCull(view.at(x, y, z + 1))) faces[nf++] = F_PZ;
-                    if (!waterCull(view.at(x, y, z - 1))) faces[nf++] = F_NZ;
-                    for (int f = 0; f < nf; f++) {
-                        int face = faces[f];
+                    // only emit top face — side/bottom faces are invisible
+                    // through the semi-transparent surface and cause dark artifacts
+                    if (waterCull(view.at(x, y + 1, z))) continue;
+                    {
+                        int face = F_PY;
                         uint32_t base = (uint32_t)wv.size();
                         for (int c = 0; c < 4; c++) {
                             TerrainVertex vt;

@@ -53,24 +53,25 @@ bool Window::init(int w, int h, const char* title) {
     wc.hInstance = inst;
     wc.hCursor = LoadCursorA(nullptr, (LPCSTR)IDC_ARROW);
     wc.lpszClassName = L"VoxMineWnd";
-    if (!RegisterClassW(&wc)) {
-        // already registered
-    }
+    RegisterClassW(&wc);
     g_input = &in_;
     g_window = this;
 
     RECT rc = {0, 0, w, h};
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-    // Convert UTF-8 title to wide for proper Unicode display
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, title, -1, nullptr, 0);
-    std::wstring wtitle(wlen > 0 ? wlen - 1 : 0, 0);
-    if (wlen > 1) MultiByteToWideChar(CP_UTF8, 0, title, -1, &wtitle[0], wlen);
-    HWND hwnd = CreateWindowExW(0, L"VoxMineWnd", wtitle.c_str(), WS_OVERLAPPEDWINDOW,
+    HWND hwnd = CreateWindowExW(0, L"VoxMineWnd", L"VoxMine", WS_OVERLAPPEDWINDOW,
                                 CW_USEDEFAULT, CW_USEDEFAULT,
                                 rc.right - rc.left, rc.bottom - rc.top,
                                 nullptr, nullptr, inst, nullptr);
     if (!hwnd) return false;
     hwnd_ = hwnd;
+    // Set initial title as wide string for proper Unicode display
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, title, -1, nullptr, 0);
+    if (wlen > 1) {
+        std::wstring wtitle(wlen - 1, 0);
+        MultiByteToWideChar(CP_UTF8, 0, title, -1, &wtitle[0], wlen);
+        SetWindowTextW(hwnd, wtitle.c_str());
+    }
     ShowWindow(hwnd, SW_SHOW);
     return true;
 }
@@ -84,10 +85,10 @@ void Window::shutdown() {
 
 bool Window::pump() {
     MSG msg;
-    while (PeekMessageA(&msg, nullptr, 0, 0, PM_REMOVE)) {
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
         if (msg.message == WM_QUIT) return false;
         TranslateMessage(&msg);
-        DispatchMessageA(&msg);
+        DispatchMessageW(&msg);
     }
     return true;
 }

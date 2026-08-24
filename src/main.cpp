@@ -267,9 +267,12 @@ int main(int argc, char** argv) {
             world->setBlock(bx, by, bz, B_AIR);
         }
         if (!a.screenshot.empty()) {
-            for (int i = 0; i < 30 && win.pump(); i++) {
-                if (i == 20) renderer.requestScreenshot(a.screenshot);
+            int totalFrames = a.drive ? 400 : 30;
+            for (int i = 0; i < totalFrames && win.pump(); i++) {
+                if (i == (a.drive ? 380 : 20)) renderer.requestScreenshot(a.screenshot);
                 Input& in = win.input();
+                if (a.drive) { in.keys['W'] = true; player.cam.pitch = -0.1f; }
+                player.update(in, *world, 1.0f / 60.0f);
                 renderer.render(ctx, player.cam, player, in, 1.0f / 60.0f, (float)a.renderDist, !a.noUI);
                 win.endFrame();
             }
