@@ -1,4 +1,4 @@
-# VoxMine — 原生多线程的类 Minecraft 体素游戏（Vulkan）
+# VoxMine — 原生多线程的类 Minecraft 像素沙盒游戏（Vulkan）
 
 一个用 C++20 编写、使用手写 Vulkan 渲染器与原生工作线程的沙盒类 Minecraft 游戏。
 内容参考早期 Minecraft（Beta ~1.8 时代）：草方块、泥土、石头、基岩、经典矿石
