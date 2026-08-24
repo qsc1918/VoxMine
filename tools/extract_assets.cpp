@@ -51,6 +51,10 @@ static const AssetEntry kAssets[] = {
     {"assets/minecraft/textures/gui/sprites/widget/button.png",               "gui/button.png"},
     {"assets/minecraft/textures/gui/sprites/widget/button_highlighted.png",   "gui/button_highlighted.png"},
     {"assets/minecraft/textures/gui/sprites/widget/text_field.png",           "gui/text_field.png"},
+    {"assets/minecraft/textures/gui/sprites/widget/slider.png",               "gui/slider.png"},
+    {"assets/minecraft/textures/gui/sprites/widget/slider_highlighted.png",   "gui/slider_highlighted.png"},
+    {"assets/minecraft/textures/gui/sprites/widget/slider_handle.png",        "gui/slider_handle.png"},
+    {"assets/minecraft/textures/gui/sprites/widget/slider_handle_highlighted.png", "gui/slider_handle_highlighted.png"},
 };
 
 static std::string pickJarFile() {

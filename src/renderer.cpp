@@ -494,7 +494,7 @@ void Renderer::createDescriptors(VkCtx& ctx) {
 }
 
 void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist) {
-    Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.1f, 512.0f);
+    Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.02f, 512.0f);
     Mat4 vp = Mat4::mul(proj, cam.view());
 
     // day/night cycle: timeOfDay in [0,1]; 0.0 = noon, 0.5 = midnight
@@ -779,7 +779,7 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
 }
 
 void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
-    Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.1f, 512.0f);
+    Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.02f, 512.0f);
     Mat4 vp = Mat4::mul(proj, cam.view());
     Frustum fr;
     fr.extract(vp);
@@ -836,7 +836,7 @@ void Renderer::drawUIOverlay(VkCtx& ctx, const Camera& cam, Input& in) {
     Vec3 fwd = cam.forward();
     RayHit hit = raycastWorld(*world_, cam.pos, fwd, 6.0f);
 
-    Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.1f, 512.0f);
+    Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.02f, 512.0f);
     Mat4 vp = Mat4::mul(proj, cam.view());
 
     // build UI quads

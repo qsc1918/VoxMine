@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -26,6 +27,7 @@ struct Args {
     int renderDist = 8;
     int threads = 0;
     int frames = 0;
+    bool renderDistSet = false;
     bool noUI = false;
     bool drive = false;
     bool noVsync = false;
@@ -46,7 +48,7 @@ static Args parseArgs(int argc, char** argv) {
         else if (arg == "--pos") a.posStr = next();
         else if (arg == "--yaw") a.yaw = std::stof(next());
         else if (arg == "--pitch") a.pitch = std::stof(next());
-        else if (arg == "--render-dist") a.renderDist = std::stoi(next());
+        else if (arg == "--render-dist") { a.renderDist = std::stoi(next()); a.renderDistSet = true; }
         else if (arg == "--threads") a.threads = std::stoi(next());
         else if (arg == "--frames") a.frames = std::stoi(next());
         else if (arg == "--no-ui") a.noUI = true;
@@ -74,15 +76,48 @@ static std::string exeDir() {
     return pos == std::string::npos ? "." : p.substr(0, pos);
 }
 
+// Persistent settings (options.txt next to the executable, Minecraft-style).
+struct Options {
+    bool vsync = false;       // default: vertical sync OFF
+    int renderDist = 8;       // default render distance in chunks
+};
+
+static std::string optionsPath() { return exeDir() + "\\options.txt"; }
+
+static Options loadOptions() {
+    Options o;
+    std::ifstream f(optionsPath());
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.rfind("vsync:", 0) == 0) {
+            o.vsync = (line.substr(6) == "on");
+        } else if (line.rfind("renderDist:", 0) == 0) {
+            int v = std::atoi(line.c_str() + 11);
+            if (v >= 2 && v <= 32) o.renderDist = v;
+        }
+    }
+    return o;
+}
+
+static void saveOptions(const Options& o) {
+    std::ofstream f(optionsPath(), std::ios::trunc);
+    if (!f) return;
+    f << "vsync:" << (o.vsync ? "on" : "off") << "\n";
+    f << "renderDist:" << o.renderDist << "\n";
+}
+
 int main(int argc, char** argv) {
     Args a = parseArgs(argc, argv);
     SetProcessDPIAware();
+
+    // Load persistent settings before the Vulkan context (vsync affects swapchain).
+    Options opts = loadOptions();
 
     Window win;
     if (!win.init(1280, 720, "VoxMine - Vulkan")) { return 1; }
 
     VkCtx ctx;
-    ctx.vsync = !a.noVsync;
+    ctx.vsync = a.noVsync ? false : opts.vsync;
     if (!ctx.init(win, 1280, 720)) { printf("Vulkan init failed: %s\n", ctx.lastError.c_str()); return 1; }
 
     Renderer renderer;
@@ -106,7 +141,7 @@ int main(int argc, char** argv) {
     Menuscreen optionsReturnTo = Menuscreen::MainMenu;
     int frame = 0;
     int lastW = 0, lastH = 0;
-    int renderDist = a.renderDist; // runtime-adjustable via Video settings
+    int renderDist = (a.renderDistSet ? a.renderDist : opts.renderDist); // runtime-adjustable via Video settings
     bool escPrev = false, ePrev = false, in_prevL = false, in_prevR = false;
     auto last = std::chrono::steady_clock::now();
 
@@ -437,6 +472,7 @@ int main(int argc, char** argv) {
             md.seedText = seedText;
             md.vsync = ctx.vsync;
             md.renderDist = renderDist;
+            md.renderDistPtr = &renderDist;
             md.titleText = "新建世界";
             int clicked = menu.renderMenu(ctx, screenFromGS(gs), md, cx, cy, in.mouse[0]);
 
@@ -471,15 +507,12 @@ int main(int argc, char** argv) {
                 case MENU_VSYNC:
                     ctx.vsync = !ctx.vsync;
                     ctx.recreateSwapchain(cw, ch);
+                    saveOptions(Options{ctx.vsync, renderDist});
                     break;
-                case MENU_RENDERDIST: {
-                    static const int presets[] = {6, 8, 12, 16, 24};
-                    int n = (int)(sizeof(presets) / sizeof(presets[0]));
-                    int idx = 0;
-                    for (int i = 0; i < n; i++) if (presets[i] == renderDist) { idx = i; break; }
-                    renderDist = presets[(idx + 1) % n];
+                case MENU_RENDERDIST:
+                    // The slider already wrote the new value into `renderDist`.
+                    saveOptions(Options{ctx.vsync, renderDist});
                     break;
-                }
                 default:
                     // save-list buttons
                     if (clicked >= MENU_SAVE_FIRST && clicked < MENU_SAVE_FIRST + (int)saves.size() && gs == GS::SaveSelect) {

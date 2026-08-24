@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <string>
 #include <algorithm>
 
@@ -54,6 +55,9 @@ bool Menu::init(VkCtx& ctx, Window& win, const std::string& assetDir) {
     makeDib(btnRGBA_.data(), btnW_, btnH_, btnBmp_, btnDC_, nullptr);
     makeDib(btnHiRGBA_.data(), btnW_, btnH_, btnHiBmp_, btnHiDC_, nullptr);
     makeDib(fieldRGBA_.data(), btnW_, btnH_, fieldBmp_, fieldDC_, nullptr);
+    makeDib(sliderRGBA_.data(), sliderW_, sliderH_, sliderBmp_, sliderDC_, nullptr);
+    makeDib(handleRGBA_.data(), handleW_, handleH_, handleBmp_, handleDC_, nullptr);
+    makeDib(handleHiRGBA_.data(), handleW_, handleH_, handleHiBmp_, handleHiDC_, nullptr);
     ensureDIB(win.width(), win.height());
     createMenuTexture(ctx);
 
@@ -228,6 +232,9 @@ bool Menu::loadTextures(const std::string& assetDir) {
     if (!load("gui/button.png", btnRGBA_, btnW_, btnH_)) { fprintf(stderr, "[menu] button.png load failed\n"); return false; }
     if (!load("gui/button_highlighted.png", btnHiRGBA_, btnW_, btnH_)) return false;
     if (!load("gui/text_field.png", fieldRGBA_, btnW_, btnH_)) return false;
+    if (!load("gui/slider.png", sliderRGBA_, sliderW_, sliderH_)) return false;
+    if (!load("gui/slider_handle.png", handleRGBA_, handleW_, handleH_)) return false;
+    if (!load("gui/slider_handle_highlighted.png", handleHiRGBA_, handleW_, handleH_)) return false;
     // The button sprite is 200x20; give DIBs a small vertical margin to avoid clamping.
     return true;
 }
@@ -357,6 +364,7 @@ void Menu::renderToDIB(Menuscreen screen, const MenuData& data, float cx, float 
                 StretchBlt(dc, x, y, ts, ts, dirtDC_, 0, 0, dirtW_, dirtH_, SRCCOPY);
     }
     btns_.clear();
+    sliderActive_ = false;
     int w = diw_, h = dih_;
     int cxr = cx, cyr = cy;
 
@@ -370,6 +378,31 @@ void Menu::renderToDIB(Menuscreen screen, const MenuData& data, float cx, float 
         SelectObject(dc, font_);
         DrawTextW(dc, utf8ToWide(text).c_str(), -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
         btns_.push_back({id, x, y, bw, bh});
+    };
+
+    // Minecraft-style horizontal slider (track + knob) for numeric options.
+    auto addSlider = [&](float x, float y, float bw, float bh, int minV, int maxV, int val) {
+        sliderActive_ = true;
+        sliderMinX_ = x; sliderMaxX_ = x + bw; sliderY_ = y; sliderGH_ = bh;
+        sliderMinV_ = minV; sliderMaxV_ = maxV;
+        // track (9-slice, rounded ends preserved)
+        slice9(dc, sliderDC_, sliderW_, sliderH_, BTN_BORDER, x, y, bw, bh);
+        float frac = (float)(val - minV) / (float)(maxV - minV);
+        frac = frac < 0 ? 0 : (frac > 1 ? 1 : frac);
+        float handleX = x + frac * (bw - handleW_);
+        float handleY = y + (bh - handleH_) * 0.5f;
+        bool handleHover = cxr >= handleX && cxr <= handleX + handleW_ &&
+                           cyr >= handleY && cyr <= handleY + handleH_;
+        StretchBlt(dc, (int)handleX, (int)handleY, (int)handleW_, (int)handleH_,
+                   handleHover ? handleHiDC_ : handleDC_, 0, 0, handleW_, handleH_, SRCCOPY);
+        // value label beneath the track
+        std::string vl = "渲染距离：" + std::to_string(val);
+        RECT vr = {(int)x, (int)(y + bh + 4), (int)(x + bw), (int)(y + bh + 26)};
+        SetTextColor(dc, RGB(255, 255, 255));
+        SetBkMode(dc, TRANSPARENT);
+        SetTextAlign(dc, TA_CENTER);
+        SelectObject(dc, font_);
+        DrawTextW(dc, utf8ToWide(vl).c_str(), -1, &vr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     };
 
     if (screen == Menuscreen::MainMenu) {
@@ -423,8 +456,7 @@ void Menu::renderToDIB(Menuscreen screen, const MenuData& data, float cx, float 
         float bx = (w - bw) / 2;
         std::string label = std::string("垂直同步：") + (data.vsync ? "开" : "关");
         addBtn(MENU_VSYNC, bx, 210, bw, bh, label);
-        std::string rdLabel = "渲染距离：" + std::to_string(data.renderDist);
-        addBtn(MENU_RENDERDIST, bx, 260, bw, bh, rdLabel);
+        addSlider(bx, 270, bw, 20, data.renderDistMin, data.renderDistMax, data.renderDist);
         addBtn(MENU_BACK, bx, h - 90, bw, bh, "返回");
     } else if (screen == Menuscreen::Pause) {
         float bw = 400, bh = 40;
@@ -526,6 +558,24 @@ int Menu::renderMenu(VkCtx& ctx, Menuscreen screen, const MenuData& data,
     ctx.lastSubmitFence = f.fence;
     if (!ctx.presentImage(imageIndex, f)) { ctx.recreateSwapchain(diw_, dih_); return MENU_NONE; }
 
+    // ---- render-distance slider interaction (drag) ----
+    if (sliderActive_) {
+        bool overSlider = cx >= sliderMinX_ && cx <= sliderMaxX_ &&
+                          cy >= sliderY_ && cy <= sliderY_ + sliderGH_;
+        if (mouseDown && (overSlider || sliderDragging_)) {
+            float frac = (cx - sliderMinX_) / (sliderMaxX_ - sliderMinX_);
+            frac = frac < 0 ? 0 : (frac > 1 ? 1 : frac);
+            int val = sliderMinV_ + (int)std::lround(frac * (sliderMaxV_ - sliderMinV_));
+            if (val < sliderMinV_) val = sliderMinV_;
+            if (val > sliderMaxV_) val = sliderMaxV_;
+            if (data.renderDistPtr) *data.renderDistPtr = val;
+            sliderDragging_ = true;
+            prevMouseDown_ = mouseDown;
+            return MENU_RENDERDIST;
+        }
+    }
+    sliderDragging_ = false;
+
     if (mouseDown && !prevMouseDown_) {
         // Latch the press so the same held click cannot immediately fire a button
         // on the *next* screen (which would trigger a button that happens to sit
@@ -562,6 +612,12 @@ void Menu::shutdown(VkCtx& ctx) {
     if (btnHiBmp_) DeleteObject(btnHiBmp_);
     if (fieldDC_) DeleteDC(fieldDC_);
     if (fieldBmp_) DeleteObject(fieldBmp_);
+    if (sliderDC_) DeleteDC(sliderDC_);
+    if (sliderBmp_) DeleteObject(sliderBmp_);
+    if (handleDC_) DeleteDC(handleDC_);
+    if (handleBmp_) DeleteObject(handleBmp_);
+    if (handleHiDC_) DeleteDC(handleHiDC_);
+    if (handleHiBmp_) DeleteObject(handleHiBmp_);
     if (dirtDC_) DeleteDC(dirtDC_);
     if (dirtBmp_) DeleteObject(dirtBmp_);
     quadBuf_ = VK_NULL_HANDLE;
