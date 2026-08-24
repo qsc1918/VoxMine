@@ -422,7 +422,9 @@ void Menu::renderToDIB(Menuscreen screen, const MenuData& data, float cx, float 
         float bw = 300, bh = 40;
         float bx = (w - bw) / 2;
         std::string label = std::string("垂直同步：") + (data.vsync ? "开" : "关");
-        addBtn(MENU_VSYNC, bx, 250, bw, bh, label);
+        addBtn(MENU_VSYNC, bx, 210, bw, bh, label);
+        std::string rdLabel = "渲染距离：" + std::to_string(data.renderDist);
+        addBtn(MENU_RENDERDIST, bx, 260, bw, bh, rdLabel);
         addBtn(MENU_BACK, bx, h - 90, bw, bh, "返回");
     } else if (screen == Menuscreen::Pause) {
         float bw = 400, bh = 40;

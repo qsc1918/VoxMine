@@ -106,6 +106,7 @@ int main(int argc, char** argv) {
     Menuscreen optionsReturnTo = Menuscreen::MainMenu;
     int frame = 0;
     int lastW = 0, lastH = 0;
+    int renderDist = a.renderDist; // runtime-adjustable via Video settings
     bool escPrev = false, ePrev = false, in_prevL = false, in_prevR = false;
     auto last = std::chrono::steady_clock::now();
 
@@ -256,11 +257,11 @@ int main(int argc, char** argv) {
         auto t0 = std::chrono::steady_clock::now();
         while (true) {
             renderer.gpuSync(ctx);
-            world->update(player.cam.pos.x, player.cam.pos.z, a.renderDist);
+            world->update(player.cam.pos.x, player.cam.pos.z, renderDist);
             renderer.uploadChunks(ctx);
             int ready = 0;
             world->forEachChunk([&](std::shared_ptr<Chunk>& c, int, int) { if (c->state.load() >= 2) ready++; });
-            if (ready >= (2 * a.renderDist + 1) * (2 * a.renderDist + 1)) break;
+            if (ready >= (2 * renderDist + 1) * (2 * renderDist + 1)) break;
             if (std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - t0).count() > 20000) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -285,7 +286,7 @@ int main(int argc, char** argv) {
                 Input& in = win.input();
                 if (a.drive) { in.keys['W'] = true; player.cam.pitch = -0.1f; }
                 player.update(in, *world, 1.0f / 60.0f);
-                renderer.render(ctx, player.cam, player, in, 1.0f / 60.0f, (float)a.renderDist, !a.noUI);
+                renderer.render(ctx, player.cam, player, in, 1.0f / 60.0f, (float)renderDist, !a.noUI);
                 win.endFrame();
             }
             menu.shutdown(ctx);
@@ -324,6 +325,7 @@ int main(int argc, char** argv) {
         MenuData md;
         md.saves = listSaves(savesDir());
         md.vsync = ctx.vsync;
+        md.renderDist = renderDist;
         md.seedText = "123456";
         menu.renderMenu(ctx, ms, md, 640.0f, 300.0f, false);
         menu.debugSaveMenu(a.menuShot);
@@ -401,9 +403,9 @@ int main(int argc, char** argv) {
             }
 
             renderer.gpuSync(ctx);
-            world->update(player.cam.pos.x, player.cam.pos.z, a.renderDist);
+            world->update(player.cam.pos.x, player.cam.pos.z, renderDist);
             renderer.uploadChunks(ctx);
-            renderer.render(ctx, player.cam, player, in, dt, (float)a.renderDist, !a.noUI);
+            renderer.render(ctx, player.cam, player, in, dt, (float)renderDist, !a.noUI);
 
             if (a.frames > 0 && ++frame >= a.frames) break;
         } else {
@@ -434,6 +436,7 @@ int main(int argc, char** argv) {
             md.saves = saves;
             md.seedText = seedText;
             md.vsync = ctx.vsync;
+            md.renderDist = renderDist;
             md.titleText = "新建世界";
             int clicked = menu.renderMenu(ctx, screenFromGS(gs), md, cx, cy, in.mouse[0]);
 
@@ -469,6 +472,14 @@ int main(int argc, char** argv) {
                     ctx.vsync = !ctx.vsync;
                     ctx.recreateSwapchain(cw, ch);
                     break;
+                case MENU_RENDERDIST: {
+                    static const int presets[] = {6, 8, 12, 16, 24};
+                    int n = (int)(sizeof(presets) / sizeof(presets[0]));
+                    int idx = 0;
+                    for (int i = 0; i < n; i++) if (presets[i] == renderDist) { idx = i; break; }
+                    renderDist = presets[(idx + 1) % n];
+                    break;
+                }
                 default:
                     // save-list buttons
                     if (clicked >= MENU_SAVE_FIRST && clicked < MENU_SAVE_FIRST + (int)saves.size() && gs == GS::SaveSelect) {

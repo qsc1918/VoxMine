@@ -29,6 +29,7 @@ enum {
     MENU_VIDEO = 7,
     MENU_BACK = 8,
     MENU_VSYNC = 9,
+    MENU_RENDERDIST = 10,
     MENU_SAVEANDTITLE = 200,
     MENU_SAVE_FIRST = 100,     // saves are 100, 101, ...
     MENU_DELETE_FIRST = 500,   // delete buttons 500+i
@@ -39,6 +40,7 @@ struct MenuData {
     std::string seedText;
     std::string titleText;          // e.g. "新建世界" / pause text
     bool vsync = true;
+    int renderDist = 8;             // chunk render distance (video settings)
     int saveCount = 0;
 };
 

@@ -27,7 +27,9 @@ RayHit raycastWorld(const World& w, Vec3 origin, Vec3 dir, float maxDist) {
     float t = 0;
     while (t <= maxDist) {
         uint8_t id = w.getBlock(x, y, z);
-        if (id != B_AIR) {
+        // Skip water: underwater the crosshair should pass through the water and
+        // target the actual solid block behind it, so mining/placing works.
+        if (id != B_AIR && id != B_WATER) {
             out.hit = true;
             out.x = x; out.y = y; out.z = z;
             out.px = lastX; out.py = lastY; out.pz = lastZ;

@@ -203,11 +203,32 @@ void generateColumn(uint32_t seed, int cx, int cz, uint8_t* out) {
         }
     }
 
-    // water
-    for (int y = SEA_LEVEL - 1; y >= 0; y--) {
-        for (int lx = 0; lx < 16; lx++)
-            for (int lz = 0; lz < 16; lz++)
-                if (ref(out, lx, y, lz) == B_AIR) ref(out, lx, y, lz) = B_WATER;
+    // water fill. Ocean/lake columns (terrain surface below sea level) flood fully;
+    // on land columns the air below sea level is carved cave air, which we flood
+    // only ~20% of the time (low-frequency noise -> wet cave patches, most caves dry)
+    // so the underground isn't a giant lake like vanilla aquifers.
+    Noise waterN(seed ^ 0xb5297a4dU);
+    for (int lx = 0; lx < 16; lx++) {
+        for (int lz = 0; lz < 16; lz++) {
+            int wx = baseWX + lx, wz = baseWZ + lz;
+            // topmost naturally-solid block = terrain surface (caves are air below it)
+            int top = WORLD_HEIGHT - 1;
+            while (top >= 0) {
+                uint8_t b = ref(out, lx, top, lz);
+                if (b != B_AIR && b != B_WATER) break;
+                top--;
+            }
+            bool ocean = top >= 0 && top < SEA_LEVEL;
+            for (int y = SEA_LEVEL - 1; y >= 0; y--) {
+                if (ref(out, lx, y, lz) != B_AIR) continue;
+                if (ocean) {
+                    ref(out, lx, y, lz) = B_WATER;
+                } else {
+                    float wn = waterN.fbm3(wx * 0.06f, y * 0.08f, wz * 0.06f, 2, 2.0f, 0.5f);
+                    if (wn > 0.42f) ref(out, lx, y, lz) = B_WATER;
+                }
+            }
+        }
     }
 }
 

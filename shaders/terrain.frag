@@ -22,5 +22,10 @@ void main() {
     float fog = clamp((vDist - ubo.fogParams.x) / (ubo.fogParams.y - ubo.fogParams.x), 0.0, 1.0);
     vec3 sky = mix(vec3(0.10, 0.13, 0.24), vec3(ubo.fogParams.z, ubo.fogParams.w, ubo.misc.x), ubo.day.x);
     col = mix(col, sky, fog);
+    if (ubo.camPos.w > 0.5) {
+        vec3 waterCol = vec3(0.06, 0.22, 0.40);
+        float depth = clamp(vDist / ubo.fogParams.y, 0.0, 1.0);
+        col = mix(col, waterCol, clamp(0.30 + depth * 0.70, 0.0, 1.0));
+    }
     outColor = vec4(col, 1.0);
 }

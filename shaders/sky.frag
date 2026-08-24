@@ -10,5 +10,9 @@ layout(set = 0, binding = 0) uniform Ubo {
 
 void main() {
     vec3 c = mix(ubo.zenith.rgb, ubo.horizon.rgb, clamp(vUV.y, 0.0, 1.0));
+    if (ubo.horizon.a > 0.5) {
+        vec3 waterCol = vec3(0.05, 0.18, 0.34);
+        c = mix(c, waterCol, 0.85);
+    }
     outColor = vec4(c, 1.0);
 }

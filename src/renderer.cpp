@@ -508,13 +508,18 @@ void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist)
 
     struct UboData {
         Mat4 viewProj;
-        float camX, camY, camZ, pad;
+        float camX, camY, camZ, underwater;  // underwater: 1 when camera is submerged
         float fogStart, fogEnd, skyR, skyG;
         float skyB, atlasPx, tilesX, tilePx;
         float dayLight, sunX, sunY, sunZ;
     } u;
     u.viewProj = vp;
     u.camX = cam.pos.x; u.camY = cam.pos.y; u.camZ = cam.pos.z;
+    bool underwater = world_ &&
+        world_->getBlock((int)std::floor(cam.pos.x),
+                         (int)std::floor(cam.pos.y),
+                         (int)std::floor(cam.pos.z)) == B_WATER;
+    u.underwater = underwater ? 1.0f : 0.0f;
     u.fogStart = renderDist * 16.0f * 0.70f;
     u.fogEnd = renderDist * 16.0f * 0.94f;
     u.skyR = 0.60f; u.skyG = 0.77f;
@@ -539,6 +544,7 @@ void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist)
     horizon = lerp(nHorizon, horizon, dayLight);
     zenith = lerp(nZenith, zenith, dayLight);
     s.hx = horizon.x; s.hy = horizon.y; s.hz = horizon.z;
+    s.ha = underwater ? 1.0f : 0.0f;   // reuse horizon.a as the underwater flag
     s.zx = zenith.x; s.zy = zenith.y; s.zz = zenith.z;
     vkMapMemory(ctx.device, skyUBO_.m, 0, sizeof(SkyUbo), 0, &ptr);
     memcpy(ptr, &s, sizeof(SkyUbo));
