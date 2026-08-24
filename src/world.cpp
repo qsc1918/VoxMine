@@ -69,7 +69,14 @@ bool World::setBlock(int x, int y, int z, uint8_t id) {
         c->blocks[chunkIndex(lx, y, lz)] = id;
     }
     editLog_.push_back({x, y, z, (int)id});
+    // The owning chunk AND its edge neighbours must be re-meshed: a block edit on a
+    // chunk boundary changes the neighbour's boundary face culling/AO, and failing to
+    // rebuild it leaves stale faces that z-fight (flicker / see-through seams).
     markDirty(cx, cz);
+    markDirty(cx + 1, cz);
+    markDirty(cx - 1, cz);
+    markDirty(cx, cz + 1);
+    markDirty(cx, cz - 1);
     return true;
 }
 

@@ -39,7 +39,7 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_MBUTTONUP:   if (g_input) g_input->mouse[2] = false; return 0;
         default: break;
     }
-    return DefWindowProc(hwnd, msg, wParam, lParam);
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 bool Window::init(int w, int h, const char* title) {

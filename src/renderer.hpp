@@ -42,6 +42,12 @@ public:
     void uploadChunks(VkCtx& ctx);
     void destroyChunkBuffers(VkCtx& ctx, Chunk& c);
 
+    // Wait until the previously-submitted frame's GPU work is finished. This MUST
+    // be called before the CPU destroys or rewrites any chunk vertex/index buffer
+    // (world update / upload), otherwise the GPU may still be reading those buffers
+    // from the frame in flight, producing corruption (flicker/seams during motion).
+    void gpuSync(VkCtx& ctx);
+
     void requestScreenshot(const std::string& path) { pendingShot_ = path; }
     void setTimeOfDay(float t) { timeOfDay_ = t; }
 

@@ -22,6 +22,8 @@ bool saveWorld(World& world, const Player& player, const std::string& name,
 // Read header only (seed + spawn) for menu listing.
 WorldSave saveInfo(const std::string& name, const std::string& dir);
 
-// Load full world from disk (chunks + seed + spawn). Returns false on I/O error.
+// Load full world from disk (chunks + seed + spawn + player view/fly state).
+// Returns false on I/O error or version mismatch.
 bool loadWorld(World& world, uint32_t& seed, float& spawnX, float& spawnY, float& spawnZ,
+               float& yaw, float& pitch, bool& flying,
                const std::string& name, const std::string& dir);

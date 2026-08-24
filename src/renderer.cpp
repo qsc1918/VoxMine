@@ -590,6 +590,11 @@ static void uploadPart(VkCtx& ctx, Chunk& c, bool opaque,
     vertBytes = (uint64_t)vb;
 }
 
+void Renderer::gpuSync(VkCtx& ctx) {
+    if (ctx.lastSubmitFence)
+        vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
+}
+
 void Renderer::uploadChunks(VkCtx& ctx) {
     world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int, int) {
         if (!c->needsUpload.exchange(false)) return;
@@ -642,7 +647,6 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
     else timeScale_ = 1.0f / 1200.0f;
     timeOfDay_ += dt * timeScale_;
     if (timeOfDay_ >= 1.0f) timeOfDay_ -= 1.0f;
-    updateTerrainUBO(ctx, cam, renderDist);
 
     if (pendingShot_.empty()) shotTaken_ = false;
 
@@ -652,6 +656,8 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
     // f.fence, which may be the same fence we would otherwise wait on below).
     if (ctx.lastSubmitFence)
         vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
+    // Only now safe to rewrite the host-visible UBO — the GPU is done with it.
+    updateTerrainUBO(ctx, cam, renderDist);
     if (!ctx.acquireNext(f, imageIndex)) {
         ctx.recreateSwapchain(windowW_, windowH_);
         return false;

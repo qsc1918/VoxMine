@@ -83,13 +83,18 @@ inline bool worldTaskLess(const WorldTask& a, const WorldTask& b) {
 }
 
 // Stores a local 18x18x128 copy of a chunk plus its 4 neighbors for meshing.
+// Indexed by LOCAL block coordinates x,z in [-1,16] and y in [0,WORLD_HEIGHT).
+// The array is 18 wide per axis; index = (x+1) + (z+1)*18 + y*18*18 so the
+// -1..16 local range maps cleanly onto 0..17 without out-of-bounds access.
 struct MeshView {
     std::array<uint8_t, 18 * 18 * WORLD_HEIGHT> blocks{};
     inline uint8_t at(int x, int y, int z) const {
-        if (x < 0 || x >= 18 || y < 0 || y >= WORLD_HEIGHT || z < 0 || z >= 18) return B_AIR;
-        return blocks[x + z * 18 + y * 18 * 18];
+        if (x < -1 || x > 16 || y < 0 || y >= WORLD_HEIGHT || z < -1 || z > 16) return B_AIR;
+        return blocks[(x + 1) + (z + 1) * 18 + y * 18 * 18];
     }
-    inline void set(int x, int y, int z, uint8_t v) { blocks[x + z * 18 + y * 18 * 18] = v; }
+    inline void set(int x, int y, int z, uint8_t v) {
+        blocks[(x + 1) + (z + 1) * 18 + y * 18 * 18] = v;
+    }
 };
 
 class World {

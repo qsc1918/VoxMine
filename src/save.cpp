@@ -30,10 +30,11 @@ static fs::path levelPath(const std::string& name, const std::string& dir) {
 }
 
 // ---- Binary format ----
-// Header: magic(4) version(4) seed(4) spawnX(4) spawnY(4) spawnZ(4) numChunks(4) = 28 bytes
+// Header: magic(4) version(4) seed(4) spawnX(4) spawnY(4) spawnZ(4)
+//         yaw(4) pitch(4) flying(4) numChunks(4) = 44 bytes
 // Per chunk: cx(4) cz(4) blocks[65536] = 65544 bytes
 static constexpr uint32_t SAVE_MAGIC = 0x564D5356; // "VMSV"
-static constexpr uint32_t SAVE_VERSION = 1;
+static constexpr uint32_t SAVE_VERSION = 2;
 
 std::vector<WorldSave> listSaves(const std::string& dir) {
     std::vector<WorldSave> out;
@@ -77,12 +78,17 @@ bool saveWorld(World& world, const Player& player, const std::string& name,
         uint32_t version = SAVE_VERSION;
         uint32_t seed = world.seed;
         float sx = player.cam.pos.x, sy = player.cam.pos.y, sz = player.cam.pos.z;
+        float yaw = player.cam.yaw, pitch = player.cam.pitch;
+        uint32_t flying = player.flying ? 1 : 0;
         f.write((char*)&magic, 4);
         f.write((char*)&version, 4);
         f.write((char*)&seed, 4);
         f.write((char*)&sx, 4);
         f.write((char*)&sy, 4);
         f.write((char*)&sz, 4);
+        f.write((char*)&yaw, 4);
+        f.write((char*)&pitch, 4);
+        f.write((char*)&flying, 4);
 
         // collect all chunks
         struct ChunkEntry { int32_t cx, cz; const uint8_t* data; };
@@ -106,6 +112,7 @@ bool saveWorld(World& world, const Player& player, const std::string& name,
 }
 
 bool loadWorld(World& world, uint32_t& seed, float& spawnX, float& spawnY, float& spawnZ,
+               float& yaw, float& pitch, bool& flying,
                const std::string& name, const std::string& dir) {
     std::ifstream f(levelPath(name, dir), std::ios::binary);
     if (!f) return false;
@@ -113,12 +120,24 @@ bool loadWorld(World& world, uint32_t& seed, float& spawnX, float& spawnY, float
     uint32_t magic = 0, version = 0;
     f.read((char*)&magic, 4);
     f.read((char*)&version, 4);
-    if (magic != SAVE_MAGIC || version != SAVE_VERSION) return false;
+    if (magic != SAVE_MAGIC) return false;
 
     f.read((char*)&seed, 4);
     f.read((char*)&spawnX, 4);
     f.read((char*)&spawnY, 4);
     f.read((char*)&spawnZ, 4);
+
+    // v2 added player view/fly state. Old v1 saves omit the 12 bytes.
+    yaw = 0.0f;
+    pitch = -0.1f;
+    flying = false;
+    if (version >= 2) {
+        f.read((char*)&yaw, 4);
+        f.read((char*)&pitch, 4);
+        uint32_t fly = 0;
+        f.read((char*)&fly, 4);
+        flying = fly != 0;
+    }
 
     uint32_t numChunks = 0;
     f.read((char*)&numChunks, 4);

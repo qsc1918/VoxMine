@@ -140,14 +140,20 @@ int main(int argc, char** argv) {
         if (!loadFrom.empty()) {
             // Load saved chunks from disk (binary format: all generated chunks).
             float savedSpawnX = 8.5f, savedSpawnY = 80.0f, savedSpawnZ = 8.5f;
-            loadWorld(*world, seed, savedSpawnX, savedSpawnY, savedSpawnZ, loadFrom, savesDir());
-            // Re-mesh neighbors of all loaded chunks to fix boundary faces
-            // (water/terrain seams at chunk edges).
+            float savedYaw = 0.0f, savedPitch = -0.1f;
+            bool savedFlying = false;
+            loadWorld(*world, seed, savedSpawnX, savedSpawnY, savedSpawnZ,
+                      savedYaw, savedPitch, savedFlying, loadFrom, savesDir());
+            // Re-mesh EVERY loaded chunk so boundary faces (and neighbour data
+            // read by the mesher) are rebuilt consistently after loading. Mesh
+            // data is not persisted — only block data is — so stale meshes must
+            // never survive a load.
             std::vector<std::pair<int,int>> loadedChunks;
             world->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
                 if (c->state.load() >= 1) loadedChunks.push_back({cx, cz});
             });
             for (auto& [cx, cz] : loadedChunks) {
+                world->forceMeshChunk(cx, cz);
                 world->forceMeshChunk(cx + 1, cz);
                 world->forceMeshChunk(cx - 1, cz);
                 world->forceMeshChunk(cx, cz + 1);
@@ -159,6 +165,11 @@ int main(int argc, char** argv) {
             } else {
                 player.cam.pos = Vec3(savedSpawnX, savedSpawnY, savedSpawnZ);
             }
+            // Restore the saved player view/fly state so a reloaded player does
+            // not look down at a default angle or fall from mid-air.
+            player.cam.yaw = savedYaw;
+            player.cam.pitch = savedPitch;
+            player.flying = savedFlying;
         } else {
             // Fresh world: generate chunks around spawn.
             if (!a.posStr.empty()) {
@@ -244,6 +255,7 @@ int main(int argc, char** argv) {
     auto settle = [&]() {
         auto t0 = std::chrono::steady_clock::now();
         while (true) {
+            renderer.gpuSync(ctx);
             world->update(player.cam.pos.x, player.cam.pos.z, a.renderDist);
             renderer.uploadChunks(ctx);
             int ready = 0;
@@ -388,6 +400,7 @@ int main(int argc, char** argv) {
                 in_prevR = in.mouse[1];
             }
 
+            renderer.gpuSync(ctx);
             world->update(player.cam.pos.x, player.cam.pos.z, a.renderDist);
             renderer.uploadChunks(ctx);
             renderer.render(ctx, player.cam, player, in, dt, (float)a.renderDist, !a.noUI);
@@ -468,7 +481,7 @@ int main(int argc, char** argv) {
         }
 
         if (frame % 60 == 0) {
-            const wchar_t* mode = (gs == GS::Play) ? L"游戏" : L"菜单";
+            const wchar_t* mode = (gs == GS::Play) ? L"Game" : L"Menu";
             wchar_t title[128];
             swprintf(title, 128, L"VoxMine - %s", mode);
             SetWindowTextW((HWND)win.hwnd(), title);
