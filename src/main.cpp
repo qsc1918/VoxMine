@@ -136,27 +136,108 @@ int main(int argc, char** argv) {
         player = Player();
         player.cam.yaw = a.yaw;
         player.cam.pitch = a.pitch;
-        if (!a.posStr.empty()) {
-            float x = 0, y = 80, z = 0;
-            if (sscanf(a.posStr.c_str(), "%f,%f,%f", &x, &y, &z) >= 1) player.cam.pos = Vec3(x, y, z);
-        } else {
-            player.cam.pos = Vec3(8.5f, 80.0f, 8.5f);
-            world->forceGenerateChunk(0, 0); // generate the spawn column
-            int sx = 8, sz = 8;
-            for (int y = WORLD_HEIGHT - 1; y >= 0; y--)
-                if (blockIsSolid(world->getBlock(sx, y, sz))) { player.cam.pos.y = (float)y + 2.0f + player.eyeHeight; break; }
-        }
+
         if (!loadFrom.empty()) {
-            // re-apply saved edits
-            applyEdits(*world, loadFrom, savesDir());
-            WorldSave info = saveInfo(loadFrom, savesDir());
-            if (info.spawnY > 0) player.cam.pos = Vec3(info.spawnX, info.spawnY, info.spawnZ);
+            // Load saved chunks from disk (binary format: all generated chunks).
+            float savedSpawnX = 8.5f, savedSpawnY = 80.0f, savedSpawnZ = 8.5f;
+            loadWorld(*world, seed, savedSpawnX, savedSpawnY, savedSpawnZ, loadFrom, savesDir());
+            // Re-mesh neighbors of all loaded chunks to fix boundary faces
+            // (water/terrain seams at chunk edges).
+            std::vector<std::pair<int,int>> loadedChunks;
+            world->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
+                if (c->state.load() >= 1) loadedChunks.push_back({cx, cz});
+            });
+            for (auto& [cx, cz] : loadedChunks) {
+                world->forceMeshChunk(cx + 1, cz);
+                world->forceMeshChunk(cx - 1, cz);
+                world->forceMeshChunk(cx, cz + 1);
+                world->forceMeshChunk(cx, cz - 1);
+            }
+            if (!a.posStr.empty()) {
+                float x = 0, y = 80, z = 0;
+                if (sscanf(a.posStr.c_str(), "%f,%f,%f", &x, &y, &z) >= 1) player.cam.pos = Vec3(x, y, z);
+            } else {
+                player.cam.pos = Vec3(savedSpawnX, savedSpawnY, savedSpawnZ);
+            }
+        } else {
+            // Fresh world: generate chunks around spawn.
+            if (!a.posStr.empty()) {
+                float x = 0, y = 80, z = 0;
+                if (sscanf(a.posStr.c_str(), "%f,%f,%f", &x, &y, &z) >= 1) player.cam.pos = Vec3(x, y, z);
+            } else {
+                auto hasHeadroom = [&](int x, int z, int surfaceY, int needed) {
+                    for (int y = surfaceY + 1; y <= surfaceY + needed; y++) {
+                        if (y >= WORLD_HEIGHT) return false;
+                        uint8_t b = world->getBlock(x, y, z);
+                        if (b != B_AIR && b != B_WATER) return false;
+                    }
+                    return true;
+                };
+                auto flCoord = [](int a, int b) { int q = a / b; if ((a % b) < 0) q--; return q; };
+                int spawnX = 8, spawnZ = 8, spawnTopY = 0;
+                bool found = false;
+                auto columnTop = [&](int x, int z, bool groundOnly, int& yOut) {
+                    for (int y = WORLD_HEIGHT - 1; y >= 0; y--) {
+                        uint8_t b = world->getBlock(x, y, z);
+                        if (b == B_AIR || b == B_WATER) continue;
+                        if (groundOnly && (b == B_LEAVES || b == B_LOG)) continue;
+                        yOut = y;
+                        return b;
+                    }
+                    return (uint8_t)0;
+                };
+                for (int radius = 0; radius <= 128 && !found; radius++) {
+                    for (int dx = -radius; dx <= radius && !found; dx++) {
+                        for (int dz = -radius; dz <= radius && !found; dz++) {
+                            if (radius > 0 && std::abs(dx) != radius && std::abs(dz) != radius) continue;
+                            int x = 8 + dx, z = 8 + dz;
+                            world->forceGenerateChunk(flCoord(x, 16), flCoord(z, 16));
+                            int sY = -1;
+                            uint8_t topBlock = columnTop(x, z, true, sY);
+                            if (sY < 0) continue;
+                            if (topBlock == B_WATER) continue;
+                            if (sY < SEA_LEVEL - 1) continue;
+                            int checkFrom = sY;
+                            for (int y = sY + 1; y < WORLD_HEIGHT; y++) {
+                                uint8_t b = world->getBlock(x, y, z);
+                                if (b == B_AIR) { checkFrom = y; break; }
+                                if (b != B_WATER && b != B_LEAVES && b != B_LOG) { checkFrom = y; break; }
+                            }
+                            if (!hasHeadroom(x, z, checkFrom, 3)) continue;
+                            spawnX = x; spawnZ = z; spawnTopY = sY;
+                            found = true;
+                        }
+                    }
+                }
+                if (!found) {
+                    int bestFloor = -1, bestX = 8, bestZ = 8;
+                    for (int radius = 0; radius <= 12; radius++) {
+                        for (int dx = -radius; dx <= radius; dx++) {
+                            for (int dz = -radius; dz <= radius; dz++) {
+                                if (radius > 0 && std::abs(dx) != radius && std::abs(dz) != radius) continue;
+                                int x = 8 + dx, z = 8 + dz;
+                                world->forceGenerateChunk(flCoord(x, 16), flCoord(z, 16));
+                                int sY = -1;
+                                columnTop(x, z, false, sY);
+                                if (sY < 0) continue;
+                                if (sY > bestFloor) { bestFloor = sY; bestX = x; bestZ = z; }
+                            }
+                        }
+                        if (bestFloor > SEA_LEVEL - 12) break;
+                    }
+                    spawnX = bestX; spawnZ = bestZ; spawnTopY = bestFloor > 0 ? bestFloor : 0;
+                    found = true;
+                    if (spawnTopY <= 0) { spawnX = 8; spawnZ = 8; }
+                }
+                if (spawnTopY <= 0) player.cam.pos = Vec3(8.5f, 80.0f, 8.5f);
+                else player.cam.pos = Vec3((float)spawnX + 0.5f, (float)spawnTopY + 1.0f + player.eyeHeight,
+                                           (float)spawnZ + 0.5f);
+            }
         }
         renderer.setInventoryOpen(false);
         win.setCapture(true);
         ShowCursor(FALSE);
         gs = GS::Play;
-        
     };
 
     // settle chunks around the player (for a smooth start)
@@ -218,8 +299,8 @@ int main(int argc, char** argv) {
     // unique world name
     int saveSeq = 0;
     auto newWorldName = [&]() -> std::string {
-        std::string n = "涓栫晫" + std::to_string(++saveSeq);
-        for (auto& s : saves) if (s.name == n) n = "涓栫晫" + std::to_string(++saveSeq);
+        std::string n = "世界" + std::to_string(++saveSeq);
+        for (auto& s : saves) if (s.name == n) n = "世界" + std::to_string(++saveSeq);
         return n;
     };
 
@@ -306,9 +387,7 @@ int main(int argc, char** argv) {
 
             world->update(player.cam.pos.x, player.cam.pos.z, a.renderDist);
             renderer.uploadChunks(ctx);
-            fprintf(stderr, "[main] rendering 3d...\n");
             renderer.render(ctx, player.cam, player, in, dt, (float)a.renderDist, !a.noUI);
-            fprintf(stderr, "[main] rendered\n");
 
             if (a.frames > 0 && ++frame >= a.frames) break;
         } else {
@@ -324,14 +403,14 @@ int main(int argc, char** argv) {
                 }
             }
 
-            // seed input
+            // seed input (edge-triggered: one character per key press)
             if (gs == GS::NewWorld) {
                 for (UINT k : {0x30u,0x31u,0x32u,0x33u,0x34u,0x35u,0x36u,0x37u,0x38u,0x39u,
                                (UINT)'A',(UINT)'B',(UINT)'C',(UINT)'D',(UINT)'E',(UINT)'F'})
-                    if (in.keys[k]) seedText += (char)k;
-                if (in.keys[VK_SPACE]) seedText += ' ';
-                if (in.keys[VK_OEM_MINUS]) seedText += '-';
-                if (in.keys[VK_BACK] && !seedText.empty()) seedText.pop_back();
+                    if (in.pressed[k]) seedText += (char)k;
+                if (in.pressed[VK_SPACE]) seedText += ' ';
+                if (in.pressed[VK_OEM_MINUS]) seedText += '-';
+                if (in.pressed[VK_BACK] && !seedText.empty()) seedText.pop_back();
             }
 
             float cx, cy; win.cursorPos(cx, cy);
@@ -386,9 +465,10 @@ int main(int argc, char** argv) {
         }
 
         if (frame % 60 == 0) {
-            char title[128];
-            snprintf(title, sizeof(title), "VoxMine - %s", gs == GS::Play ? "娓告垙" : "鑿滃崟");
-            SetWindowTextA((HWND)win.hwnd(), title);
+            const wchar_t* mode = (gs == GS::Play) ? L"游戏" : L"菜单";
+            wchar_t title[128];
+            swprintf(title, 128, L"VoxMine - %s", mode);
+            SetWindowTextW((HWND)win.hwnd(), title);
         }
         win.endFrame();
         if (a.frames > 0 && ++frame >= a.frames) break;

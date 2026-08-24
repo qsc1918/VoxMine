@@ -3,18 +3,12 @@
 #include "player.hpp"
 #include <windows.h>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 
 namespace fs = std::filesystem;
-
-// floor division that works for negative coords (modulo semantics for voxel coords).
-static inline int floordivCoord(int a, int b) {
-    int q = a / b, r = a % b;
-    if (r < 0) q--;
-    return q;
-}
 
 static std::string exeDir() {
     char buf[MAX_PATH];
@@ -26,14 +20,26 @@ static std::string exeDir() {
 
 std::string savesDir() { return exeDir() + "\\saves"; }
 
-static std::string levelPath(const std::string& name, const std::string& dir) {
-    return dir + "\\" + name + "\\level.dat";
+static fs::path u8(const std::string& s) {
+    static_assert(sizeof(char) == sizeof(char8_t), "char8_t must be same size as char");
+    return fs::path(reinterpret_cast<const char8_t*>(s.c_str()));
 }
+
+static fs::path levelPath(const std::string& name, const std::string& dir) {
+    return u8(dir) / u8(name) / "level.dat";
+}
+
+// ---- Binary format ----
+// Header: magic(4) version(4) seed(4) spawnX(4) spawnY(4) spawnZ(4) numChunks(4) = 28 bytes
+// Per chunk: cx(4) cz(4) blocks[65536] = 65544 bytes
+static constexpr uint32_t SAVE_MAGIC = 0x564D5356; // "VMSV"
+static constexpr uint32_t SAVE_VERSION = 1;
 
 std::vector<WorldSave> listSaves(const std::string& dir) {
     std::vector<WorldSave> out;
-    if (!fs::exists(dir)) return out;
-    for (const auto& e : fs::directory_iterator(dir)) {
+    fs::path base = u8(dir);
+    if (!fs::exists(base)) return out;
+    for (const auto& e : fs::directory_iterator(base)) {
         if (!e.is_directory()) continue;
         std::string name = e.path().filename().string();
         WorldSave s = saveInfo(name, dir);
@@ -45,57 +51,83 @@ std::vector<WorldSave> listSaves(const std::string& dir) {
 
 WorldSave saveInfo(const std::string& name, const std::string& dir) {
     WorldSave s;
-    std::ifstream f(levelPath(name, dir));
-    std::string line;
-    while (std::getline(f, line)) {
-        std::istringstream ls(line);
-        std::string key;
-        ls >> key;
-        if (key == "seed") ls >> s.seed;
-        else if (key == "spawn") ls >> s.spawnX >> s.spawnY >> s.spawnZ;
-    }
+    std::ifstream f(levelPath(name, dir), std::ios::binary);
+    if (!f) return s;
+    uint32_t magic = 0, version = 0;
+    f.read((char*)&magic, 4);
+    f.read((char*)&version, 4);
+    if (magic != SAVE_MAGIC) return s;
+    f.read((char*)&s.seed, 4);
+    f.read((char*)&s.spawnX, 4);
+    f.read((char*)&s.spawnY, 4);
+    f.read((char*)&s.spawnZ, 4);
     return s;
 }
 
 bool saveWorld(World& world, const Player& player, const std::string& name,
                const std::string& dir) {
     try {
-        fs::create_directories(dir + "\\" + name);
-        std::ofstream f(levelPath(name, dir), std::ios::trunc);
+        fs::path base = u8(dir);
+        fs::create_directories(base / u8(name));
+        std::ofstream f(levelPath(name, dir), std::ios::binary | std::ios::trunc);
         if (!f) return false;
-        f << "seed " << world.seed << "\n";
-        f << "spawn " << player.cam.pos.x << " " << player.cam.pos.y << " "
-          << player.cam.pos.z << "\n";
-        const auto& edits = world.editLog();
-        f << "edits " << edits.size() << "\n";
-        for (const auto& e : edits)
-            f << e[0] << " " << e[1] << " " << e[2] << " " << e[3] << "\n";
+
+        // header
+        uint32_t magic = SAVE_MAGIC;
+        uint32_t version = SAVE_VERSION;
+        uint32_t seed = world.seed;
+        float sx = player.cam.pos.x, sy = player.cam.pos.y, sz = player.cam.pos.z;
+        f.write((char*)&magic, 4);
+        f.write((char*)&version, 4);
+        f.write((char*)&seed, 4);
+        f.write((char*)&sx, 4);
+        f.write((char*)&sy, 4);
+        f.write((char*)&sz, 4);
+
+        // collect all chunks
+        struct ChunkEntry { int32_t cx, cz; const uint8_t* data; };
+        std::vector<ChunkEntry> entries;
+        world.forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
+            if (c->state.load() >= 1)
+                entries.push_back({cx, cz, c->blocks.data()});
+        });
+        uint32_t numChunks = (uint32_t)entries.size();
+        f.write((char*)&numChunks, 4);
+
+        for (auto& e : entries) {
+            f.write((char*)&e.cx, 4);
+            f.write((char*)&e.cz, 4);
+            f.write((const char*)e.data, CHUNK_VOL);
+        }
         return true;
     } catch (...) {
         return false;
     }
 }
 
-void applyEdits(World& world, const std::string& name, const std::string& dir) {
-    std::ifstream f(levelPath(name, dir));
-    std::string line;
-    int n = 0;
-    // find the "edits N" marker
-    while (std::getline(f, line)) {
-        std::istringstream ls(line);
-        std::string key;
-        ls >> key;
-        if (key == "edits") { ls >> n; break; }
+bool loadWorld(World& world, uint32_t& seed, float& spawnX, float& spawnY, float& spawnZ,
+               const std::string& name, const std::string& dir) {
+    std::ifstream f(levelPath(name, dir), std::ios::binary);
+    if (!f) return false;
+
+    uint32_t magic = 0, version = 0;
+    f.read((char*)&magic, 4);
+    f.read((char*)&version, 4);
+    if (magic != SAVE_MAGIC || version != SAVE_VERSION) return false;
+
+    f.read((char*)&seed, 4);
+    f.read((char*)&spawnX, 4);
+    f.read((char*)&spawnY, 4);
+    f.read((char*)&spawnZ, 4);
+
+    uint32_t numChunks = 0;
+    f.read((char*)&numChunks, 4);
+
+    for (uint32_t i = 0; i < numChunks; i++) {
+        int32_t cx, cz;
+        f.read((char*)&cx, 4);
+        f.read((char*)&cz, 4);
+        world.loadChunkFromDisk(cx, cz, f);
     }
-    int applied = 0;
-    while (applied < n && std::getline(f, line)) {
-        int x, y, z, id;
-        std::istringstream ls(line);
-        if (ls >> x >> y >> z >> id) {
-            world.forceGenerateChunk(floordivCoord(x, 16), floordivCoord(z, 16));
-            world.setBlock(x, y, z, (uint8_t)id);
-            applied++;
-        }
-    }
-    world.clearEditLog();
+    return true;
 }

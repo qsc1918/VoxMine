@@ -77,6 +77,45 @@ void World::markDirty(int cx, int cz) {
     scheduleMesh(cx, cz);
 }
 
+void World::loadChunkFromDisk(int cx, int cz, std::istream& f) {
+    uint64_t key = chunkKey(cx, cz);
+    std::shared_ptr<Chunk> c;
+    {
+        std::lock_guard<std::mutex> lk(mapLock_);
+        auto it = chunks_.find(key);
+        if (it == chunks_.end()) { c = std::make_shared<Chunk>(); chunks_[key] = c; }
+        else c = it->second;
+    }
+    f.read((char*)c->blocks.data(), CHUNK_VOL);
+    c->state.store(1);
+    c->dirty.store(true);
+}
+
+void World::forceMeshChunk(int cx, int cz) {
+    uint64_t key = chunkKey(cx, cz);
+    std::shared_ptr<Chunk> c;
+    {
+        std::lock_guard<std::mutex> lk(mapLock_);
+        auto it = chunks_.find(key);
+        if (it == chunks_.end()) return;
+        c = it->second;
+    }
+    if (c->state.load() < 1) return;
+    c->dirty.store(true);
+    {
+        std::lock_guard<std::mutex> lk(queueLock_);
+        queuedMesh_.erase(key);
+        meshing_.erase(key);
+    }
+    float wx = cx * 16.0f + 8.0f, wz = cz * 16.0f + 8.0f;
+    float dx = wx - lastPx_, dz = wz - lastPz_;
+    uint64_t prio = (uint64_t)(dx * dx + dz * dz);
+    std::lock_guard<std::mutex> lk(queueLock_);
+    queuedMesh_.insert(key);
+    queue_.push(WorldTask{true, cx, cz, prio, c});
+    queueCV_.notify_one();
+}
+
 void World::forceGenerateChunk(int cx, int cz) {
     uint64_t key = chunkKey(cx, cz);
     std::shared_ptr<Chunk> c;

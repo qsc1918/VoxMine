@@ -88,12 +88,13 @@ void generateColumn(uint32_t seed, int cx, int cz, uint8_t* out) {
         for (int lz = 0; lz < 16; lz++) {
             int wx = baseWX + lx, wz = baseWZ + lz;
 
-            // layered heightmap
+            // layered heightmap. Use a smooth value-noise pyramid so adjacent
+            // columns step by at most 1-2 blocks each (no terraced canyons).
             float continents = n1.fbm2(wx * 0.004f, wz * 0.004f, 3, 2.0f, 0.5f);
-            float hills = n2.fbm2(wx * 0.02f, wz * 0.02f, 4, 2.0f, 0.5f);
-            float ridge = std::abs(n3.fbm2(wx * 0.012f, wz * 0.012f, 2, 2.0f, 0.5f));
+            float hills = n2.fbm2(wx * 0.012f, wz * 0.012f, 4, 2.0f, 0.5f);
+            float detail = n3.fbm2(wx * 0.045f, wz * 0.045f, 2, 2.0f, 0.5f);
 
-            float h = SEA_LEVEL + continents * 18.0f + hills * 10.0f + ridge * ridge * 15.0f;
+            float h = SEA_LEVEL + continents * 22.0f + hills * 8.0f + detail * 2.0f;
             int height = (int)h;
             height = std::clamp(height, 3, WORLD_HEIGHT - 1);
 
@@ -133,18 +134,27 @@ void generateColumn(uint32_t seed, int cx, int cz, uint8_t* out) {
         }
     }
 
-    // caves (3D)
-    for (int y = 3; y < 96; y++) {
+    // caves (3D) �?keep them well below the terrain surface so they never breach
+    // the ground and form crater-like pits across the landscape.
+    for (int y = 3; y < 90; y++) {
         for (int lx = 0; lx < 16; lx++) {
             for (int lz = 0; lz < 16; lz++) {
                 int wx = baseWX + lx, wz = baseWZ + lz;
-                if (y >= WORLD_HEIGHT) continue;
                 uint8_t cur = ref(out, lx, y, lz);
                 if (cur == B_AIR || cur == B_BEDROCK) continue;
+                // local surface height for this column (topmost solid block)
+                int localTop = -1;
+                for (int yy = WORLD_HEIGHT - 1; yy >= 0; yy--) {
+                    uint8_t b = ref(out, lx, yy, lz);
+                    if (b != B_AIR && b != B_WATER) { localTop = yy; break; }
+                }
+                if (localTop < 0) continue;
+                // only carve if clearly below the surface (leave a solid crust)
+                if (y >= localTop - 4) continue;
                 float cn = caveN.fbm3(wx * 0.045f, y * 0.07f, wz * 0.045f, 3, 2.0f, 0.5f);
                 float cn2 = caveN2.fbm3(wx * 0.09f, y * 0.14f, wz * 0.09f, 2, 2.0f, 0.5f);
                 float v = cn * 0.72f + cn2 * 0.28f;
-                if (v > 0.30f && y < 90) {
+                if (v > 0.30f) {
                     ref(out, lx, y, lz) = B_AIR;
                 }
             }

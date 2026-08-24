@@ -524,7 +524,13 @@ int Menu::renderMenu(VkCtx& ctx, Menuscreen screen, const MenuData& data,
     ctx.lastSubmitFence = f.fence;
     if (!ctx.presentImage(imageIndex, f)) { ctx.recreateSwapchain(diw_, dih_); return MENU_NONE; }
 
-    if (mouseDown && !prevMouseDown_) return hitTest(cx, cy);
+    if (mouseDown && !prevMouseDown_) {
+        // Latch the press so the same held click cannot immediately fire a button
+        // on the *next* screen (which would trigger a button that happens to sit
+        // under the still-held cursor after a fast menu transition).
+        prevMouseDown_ = true;
+        return hitTest(cx, cy);
+    }
     prevMouseDown_ = mouseDown;
     return MENU_NONE;
 }

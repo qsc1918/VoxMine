@@ -12,18 +12,16 @@ struct WorldSave {
     float spawnX = 0, spawnY = 80, spawnZ = 0;
 };
 
-// Bases path of the saves/ directory next to the .exe.
 std::string savesDir();
-
-// Scans the saves/ directory for existing worlds.
 std::vector<WorldSave> listSaves(const std::string& dir);
 
-// Saves the current world+player state under saves/<name>/level.dat.
+// Save: binary format, writes all loaded chunks.
 bool saveWorld(World& world, const Player& player, const std::string& name,
                const std::string& dir);
 
-// Reads the seed + spawn of a saved world (for metadata / to construct a fresh World).
+// Read header only (seed + spawn) for menu listing.
 WorldSave saveInfo(const std::string& name, const std::string& dir);
 
-// Re-applies all saved block edits onto a fresh World (created with the right seed).
-void applyEdits(World& world, const std::string& name, const std::string& dir);
+// Load full world from disk (chunks + seed + spawn). Returns false on I/O error.
+bool loadWorld(World& world, uint32_t& seed, float& spawnX, float& spawnY, float& spawnZ,
+               const std::string& name, const std::string& dir);

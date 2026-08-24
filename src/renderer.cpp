@@ -594,8 +594,11 @@ void Renderer::uploadChunks(VkCtx& ctx) {
     world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int, int) {
         if (!c->needsUpload.exchange(false)) return;
         std::lock_guard<std::mutex> lk(c->meshLock);
-        uploadPart(ctx, *c, true, c->mesh.opaqueVerts, c->mesh.opaqueIdx);
-        uploadPart(ctx, *c, false, c->mesh.waterVerts, c->mesh.waterIdx);
+        // Copy mesh data locally under the lock to avoid racing with worker
+        // threads that may be rebuilding the mesh concurrently.
+        ChunkMeshData local = c->mesh;
+        uploadPart(ctx, *c, true, local.opaqueVerts, local.opaqueIdx);
+        uploadPart(ctx, *c, false, local.waterVerts, local.waterIdx);
     });
 }
 
@@ -769,45 +772,46 @@ void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
     Frustum fr;
     fr.extract(vp);
 
+    // Pass 1: draw ALL opaque geometry
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipe_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_, 0, nullptr);
 
-    bool terrainBound = true;
     int draws = 0;
     world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
         if (c->state.load() < 2) return;
         float minX = cx * 16.0f, minZ = cz * 16.0f;
         if (!fr.testAABB(minX, 0, minZ, minX + 16, WORLD_HEIGHT, minZ + 16)) return;
+        if (!c->opaqueBuf || !c->opaqueCount) return;
         draws++;
 
         Vec3 origin((float)(cx * 16), 0, (float)(cz * 16));
-
-        if (c->opaqueBuf && c->opaqueCount) {
-            if (!terrainBound) {
-                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipe_);
-                vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_, 0, nullptr);
-                terrainBound = true;
-            }
-            vkCmdPushConstants(ctx.cmd, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
-            VkBuffer vb = (VkBuffer)(uintptr_t)c->opaqueBuf;
-            VkDeviceSize off = 0;
-            vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &vb, &off);
-            vkCmdBindIndexBuffer(ctx.cmd, vb, c->opaqueVertBytes, VK_INDEX_TYPE_UINT32);
-            vkCmdDrawIndexed(ctx.cmd, c->opaqueCount, 1, 0, 0, 1);
-        }
-        if (c->waterBuf && c->waterCount) {
-            if (terrainBound) {
-                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipe_);
-                terrainBound = false;
-            }
-            vkCmdPushConstants(ctx.cmd, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
-            VkBuffer vb = (VkBuffer)(uintptr_t)c->waterBuf;
-            VkDeviceSize off = 0;
-            vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &vb, &off);
-            vkCmdBindIndexBuffer(ctx.cmd, vb, c->waterVertBytes, VK_INDEX_TYPE_UINT32);
-            vkCmdDrawIndexed(ctx.cmd, c->waterCount, 1, 0, 0, 1);
-        }
+        vkCmdPushConstants(ctx.cmd, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
+        VkBuffer vb = (VkBuffer)(uintptr_t)c->opaqueBuf;
+        VkDeviceSize off = 0;
+        vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &vb, &off);
+        vkCmdBindIndexBuffer(ctx.cmd, vb, c->opaqueVertBytes, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(ctx.cmd, c->opaqueCount, 1, 0, 0, 1);
     });
+
+    // Pass 2: draw ALL water (semi-transparent, must be after opaque)
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipe_);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_, 0, nullptr);
+
+    world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
+        if (c->state.load() < 2) return;
+        float minX = cx * 16.0f, minZ = cz * 16.0f;
+        if (!fr.testAABB(minX, 0, minZ, minX + 16, WORLD_HEIGHT, minZ + 16)) return;
+        if (!c->waterBuf || !c->waterCount) return;
+
+        Vec3 origin((float)(cx * 16), 0, (float)(cz * 16));
+        vkCmdPushConstants(ctx.cmd, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
+        VkBuffer vb = (VkBuffer)(uintptr_t)c->waterBuf;
+        VkDeviceSize off = 0;
+        vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &vb, &off);
+        vkCmdBindIndexBuffer(ctx.cmd, vb, c->waterVertBytes, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(ctx.cmd, c->waterCount, 1, 0, 0, 1);
+    });
+
     debugDraws_ = draws;
 }
 

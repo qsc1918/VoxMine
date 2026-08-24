@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <istream>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -122,6 +123,12 @@ public:
     // Synchronously create + generate a chunk (used when loading a save, where the
     // worker pool has no tasks yet, so there is no race).
     void forceGenerateChunk(int cx, int cz);
+
+    // Load a single chunk's block data from a binary stream (save loading).
+    void loadChunkFromDisk(int cx, int cz, std::istream& f);
+
+    // Force re-mesh of a chunk (used after loading to fix boundary faces).
+    void forceMeshChunk(int cx, int cz);
 
     size_t chunkCount() const {
         std::lock_guard<std::mutex> lk(mapLock_);

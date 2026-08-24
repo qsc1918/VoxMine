@@ -1,6 +1,7 @@
 #include "window.hpp"
 #include <windows.h>
 #include <cstring>
+#include <string>
 
 static Input* g_input = nullptr;
 static Window* g_window = nullptr;
@@ -19,7 +20,13 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             return 0;
         }
         case WM_KEYDOWN:
-            if (g_input && wParam < 256) g_input->keys[wParam] = true;
+            if (g_input && wParam < 256) {
+                // lParam bit 30 is set on auto-repeat. Suppress repeats so text
+                // entry advances one character per physical key press.
+                bool autorepeat = (lParam & (1L << 30)) != 0;
+                if (!autorepeat) g_input->pressed[wParam] = true;
+                g_input->keys[wParam] = true;
+            }
             return 0;
         case WM_KEYUP:
             if (g_input && wParam < 256) g_input->keys[wParam] = false;
@@ -39,14 +46,14 @@ bool Window::init(int w, int h, const char* title) {
     w_ = w;
     h_ = h;
     HINSTANCE inst = GetModuleHandleA(nullptr);
-    WNDCLASSA wc;
+    WNDCLASSW wc;
     std::memset(&wc, 0, sizeof(wc));
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = wndProc;
     wc.hInstance = inst;
     wc.hCursor = LoadCursorA(nullptr, (LPCSTR)IDC_ARROW);
-    wc.lpszClassName = "VoxMineWnd";
-    if (!RegisterClassA(&wc)) {
+    wc.lpszClassName = L"VoxMineWnd";
+    if (!RegisterClassW(&wc)) {
         // already registered
     }
     g_input = &in_;
@@ -54,7 +61,11 @@ bool Window::init(int w, int h, const char* title) {
 
     RECT rc = {0, 0, w, h};
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-    HWND hwnd = CreateWindowExA(0, "VoxMineWnd", title, WS_OVERLAPPEDWINDOW,
+    // Convert UTF-8 title to wide for proper Unicode display
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, title, -1, nullptr, 0);
+    std::wstring wtitle(wlen > 0 ? wlen - 1 : 0, 0);
+    if (wlen > 1) MultiByteToWideChar(CP_UTF8, 0, title, -1, &wtitle[0], wlen);
+    HWND hwnd = CreateWindowExW(0, L"VoxMineWnd", wtitle.c_str(), WS_OVERLAPPEDWINDOW,
                                 CW_USEDEFAULT, CW_USEDEFAULT,
                                 rc.right - rc.left, rc.bottom - rc.top,
                                 nullptr, nullptr, inst, nullptr);

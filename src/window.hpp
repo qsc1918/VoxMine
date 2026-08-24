@@ -3,14 +3,16 @@
 
 // Per-frame input snapshot. Key indices are virtual-key codes (see window.cpp).
 struct Input {
-    bool keys[256] = {false};
-    bool mouse[3] = {false};   // 0 lmb, 1 rmb, 2 mmb
+    bool keys[256] = {false};    // held (level) state, set by WM_KEYDOWN/UP
+    bool pressed[256] = {false}; // rising edge: true only on the frame a key went down
+    bool mouse[3] = {false};     // 0 lmb, 1 rmb, 2 mmb
     bool wheelUp = false;
     bool wheelDown = false;
     float scrollAccum = 0.0f;
     void clear() {
         wheelUp = wheelDown = false;
         scrollAccum = 0.0f;
+        for (int i = 0; i < 256; i++) pressed[i] = false;
     }
 };
 

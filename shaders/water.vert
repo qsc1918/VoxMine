@@ -20,13 +20,7 @@ layout(set = 0, binding = 0) uniform Ubo {
 } ubo;
 
 void main() {
-    // Nudge chunk-column boundary vertices outward so adjacent chunk faces overlap.
     vec3 p = vec3(inPos.xyz);
-    if (p.x < 0.5) p.x -= 0.02;
-    else if (p.x > 15.5) p.x += 0.02;
-    if (p.z < 0.5) p.z -= 0.02;
-    else if (p.z > 15.5) p.z += 0.02;
-
     vec3 wp = p + pc.origin.xyz;
     gl_Position = ubo.viewProj * vec4(wp, 1.0);
 
