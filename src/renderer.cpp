@@ -645,15 +645,16 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
 
     uint32_t imageIndex;
     VkCtx::Frame& f = ctx.frames[frameIdx_ % ctx.frames.size()];
+    // Ensure the shared command buffer is free BEFORE acquiring (acquireNext resets
+    // f.fence, which may be the same fence we would otherwise wait on below).
+    if (ctx.lastSubmitFence)
+        vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
     if (!ctx.acquireNext(f, imageIndex)) {
         ctx.recreateSwapchain(windowW_, windowH_);
         return false;
     }
     frameIdx_++;
-
     VkCommandBuffer cb = ctx.cmd;
-    if (ctx.lastSubmitFence)
-        vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
     vkResetCommandBuffer(cb, 0);
     VkCommandBufferBeginInfo bi = {};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;

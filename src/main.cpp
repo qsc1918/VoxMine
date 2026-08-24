@@ -1,4 +1,4 @@
-﻿#include "camera.hpp"
+#include "camera.hpp"
 #include "player.hpp"
 #include "raycast.hpp"
 #include "renderer.hpp"
@@ -306,7 +306,9 @@ int main(int argc, char** argv) {
 
             world->update(player.cam.pos.x, player.cam.pos.z, a.renderDist);
             renderer.uploadChunks(ctx);
+            fprintf(stderr, "[main] rendering 3d...\n");
             renderer.render(ctx, player.cam, player, in, dt, (float)a.renderDist, !a.noUI);
+            fprintf(stderr, "[main] rendered\n");
 
             if (a.frames > 0 && ++frame >= a.frames) break;
         } else {
@@ -337,7 +339,7 @@ int main(int argc, char** argv) {
             md.saves = saves;
             md.seedText = seedText;
             md.vsync = ctx.vsync;
-            md.titleText = "鏂板缓涓栫晫";
+            md.titleText = "新建世界";
             int clicked = menu.renderMenu(ctx, screenFromGS(gs), md, cx, cy, in.mouse[0]);
 
             switch (clicked) {

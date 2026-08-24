@@ -67,8 +67,12 @@ static std::string pickJarFile() {
 }
 
 static std::string outputRoot() {
-    // write assets/ relative to the current working directory (run from project root)
-    return fs::current_path().string();
+    // write assets/ next to this executable (place extract_assets.exe in the project root)
+    char buf[MAX_PATH];
+    GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    std::string p(buf);
+    size_t pos = p.find_last_of("\\/");
+    return pos == std::string::npos ? "." : p.substr(0, pos);
 }
 
 static bool runTar(const std::string& jar, const std::string& outDir) {

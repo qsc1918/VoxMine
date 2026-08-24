@@ -188,11 +188,13 @@ bool Menu::init(VkCtx& ctx, Window& win, const std::string& assetDir) {
     vkUpdateDescriptorSets(ctx.device, 1, &wr, 0, nullptr);
     mpool_ = pool;
 
-    // fullscreen quad (2 triangles, NDC -1..1)
+    // fullscreen quad (2 triangles, NDC -1..1). Vulkan NDC (-1,-1) is the TOP-left of
+    // the framebuffer, and image row 0 (v=0) is the top of the uploaded menu, so
+    // v must increase downward on screen.
     struct QV { float x, y, u, v, r, g, b, a; };
     QV quad[6] = {
-        {-1,-1,0,1,1,1,1,1},{1,-1,1,1,1,1,1,1},{1,1,1,0,1,1,1,1},
-        {-1,-1,0,1,1,1,1,1},{1,1,1,0,1,1,1,1},{-1,1,0,0,1,1,1,1},
+        {-1,-1,0,0,1,1,1,1},{1,-1,1,0,1,1,1,1},{1,1,1,1,1,1,1,1},
+        {-1,-1,0,0,1,1,1,1},{1,1,1,1,1,1,1,1},{-1,1,0,1,1,1,1,1},
     };
     VkBufferCreateInfo bci = {};
     bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -461,6 +463,8 @@ int Menu::renderMenu(VkCtx& ctx, Menuscreen screen, const MenuData& data,
     // frame
     uint32_t imageIndex;
     VkCtx::Frame& f = ctx.frames[frameIdx_ % ctx.frames.size()];
+    if (ctx.lastSubmitFence)
+        vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
     if (!ctx.acquireNext(f, imageIndex)) {
         ctx.recreateSwapchain(diw_, dih_);
         return MENU_NONE;
@@ -468,7 +472,6 @@ int Menu::renderMenu(VkCtx& ctx, Menuscreen screen, const MenuData& data,
     frameIdx_++;
 
     VkCommandBuffer cb = ctx.cmd;
-    if (ctx.lastSubmitFence) vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
     vkResetCommandBuffer(cb, 0);
     VkCommandBufferBeginInfo bi = {};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
