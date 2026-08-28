@@ -192,54 +192,58 @@ bool Renderer::init(VkCtx& ctx, Window& win, const std::string& assetDir,
     pl.pSetLayouts = &skyDSL_;
     vkCreatePipelineLayout(ctx.device, &pl, nullptr, &skyLayout_);
 
-    // --- buffers ---
-    createBuffer(ctx, 256, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, terrainUBO_);
-    vkMapMemory(ctx.device, terrainUBO_.m, 0, 256, 0, &terrainUBOMap_);
-    createBuffer(ctx, 64, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, skyUBO_);
-    vkMapMemory(ctx.device, skyUBO_.m, 0, 64, 0, &skyUBOMap_);
-    createBuffer(ctx, 1 << 20, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uiBuf_);
-    vkMapMemory(ctx.device, uiBuf_.m, 0, VK_WHOLE_SIZE, 0, &uiMap_);
+    // --- per-frame buffers (host-visible, mapped once) ---
+    for (int i = 0; i < VkCtx::MAX_FRAMES_IN_FLIGHT; i++) {
+        createBuffer(ctx, 256, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, terrainUBO_[i]);
+        vkMapMemory(ctx.device, terrainUBO_[i].m, 0, 256, 0, &terrainUBOMap_[i]);
+        createBuffer(ctx, 64, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, skyUBO_[i]);
+        vkMapMemory(ctx.device, skyUBO_[i].m, 0, 64, 0, &skyUBOMap_[i]);
+        createBuffer(ctx, 1 << 20, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uiBuf_[i]);
+        vkMapMemory(ctx.device, uiBuf_[i].m, 0, VK_WHOLE_SIZE, 0, &uiMap_[i]);
+    }
 
     // --- descriptor sets ---
-    VkDescriptorBufferInfo tbi = {terrainUBO_.b, 0, 256};
     VkDescriptorImageInfo tii = {atlasSampler_, atlasView_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet w1[2] = {};
-    w1[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    w1[0].dstSet = terrainSet_;
-    w1[0].dstBinding = 0;
-    w1[0].descriptorCount = 1;
-    w1[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    w1[0].pBufferInfo = &tbi;
-    w1[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    w1[1].dstSet = terrainSet_;
-    w1[1].dstBinding = 1;
-    w1[1].descriptorCount = 1;
-    w1[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    w1[1].pImageInfo = &tii;
-    vkUpdateDescriptorSets(ctx.device, 2, w1, 0, nullptr);
-
-    VkDescriptorBufferInfo sbi = {skyUBO_.b, 0, 64};
-    VkWriteDescriptorSet w2 = {};
-    w2.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    w2.dstSet = skySet_;
-    w2.dstBinding = 0;
-    w2.descriptorCount = 1;
-    w2.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    w2.pBufferInfo = &sbi;
-    vkUpdateDescriptorSets(ctx.device, 1, &w2, 0, nullptr);
-
     VkDescriptorImageInfo uii = {atlasSampler_, atlasView_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet w3 = {};
-    w3.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    w3.dstSet = uiSet_;
-    w3.dstBinding = 0;
-    w3.descriptorCount = 1;
-    w3.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    w3.pImageInfo = &uii;
-    vkUpdateDescriptorSets(ctx.device, 1, &w3, 0, nullptr);
+    for (int i = 0; i < VkCtx::MAX_FRAMES_IN_FLIGHT; i++) {
+        VkDescriptorBufferInfo tbi = {terrainUBO_[i].b, 0, 256};
+        VkWriteDescriptorSet w1[2] = {};
+        w1[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w1[0].dstSet = terrainSet_[i];
+        w1[0].dstBinding = 0;
+        w1[0].descriptorCount = 1;
+        w1[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        w1[0].pBufferInfo = &tbi;
+        w1[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w1[1].dstSet = terrainSet_[i];
+        w1[1].dstBinding = 1;
+        w1[1].descriptorCount = 1;
+        w1[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w1[1].pImageInfo = &tii;
+        vkUpdateDescriptorSets(ctx.device, 2, w1, 0, nullptr);
+
+        VkDescriptorBufferInfo sbi = {skyUBO_[i].b, 0, 64};
+        VkWriteDescriptorSet w2 = {};
+        w2.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w2.dstSet = skySet_[i];
+        w2.dstBinding = 0;
+        w2.descriptorCount = 1;
+        w2.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        w2.pBufferInfo = &sbi;
+        vkUpdateDescriptorSets(ctx.device, 1, &w2, 0, nullptr);
+
+        VkWriteDescriptorSet w3 = {};
+        w3.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w3.dstSet = uiSet_[i];
+        w3.dstBinding = 0;
+        w3.descriptorCount = 1;
+        w3.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w3.pImageInfo = &uii;
+        vkUpdateDescriptorSets(ctx.device, 1, &w3, 0, nullptr);
+    }
 
     // --- pipelines ---
     VkVertexInputBindingDescription terrBinding = {0, 8, VK_VERTEX_INPUT_RATE_VERTEX};
@@ -339,7 +343,7 @@ void Renderer::createAtlasTexture(VkCtx& ctx) {
     memcpy(ptr, atlas_.rgba.data(), w * h * 4);
     vkUnmapMemory(ctx.device, staging.m);
 
-    VkCommandBuffer cb = ctx.cmd;
+    VkCommandBuffer cb = ctx.cmds[0];
     vkResetCommandBuffer(cb, 0);
     VkCommandBufferBeginInfo bi = {};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -494,15 +498,17 @@ void Renderer::createDescriptors(VkCtx& ctx) {
     aci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     aci.descriptorPool = pool_;
     aci.descriptorSetCount = 1;
-    aci.pSetLayouts = &terrainDSL_;
-    vkAllocateDescriptorSets(ctx.device, &aci, &terrainSet_);
-    aci.pSetLayouts = &skyDSL_;
-    vkAllocateDescriptorSets(ctx.device, &aci, &skySet_);
-    aci.pSetLayouts = &uiDSL_;
-    vkAllocateDescriptorSets(ctx.device, &aci, &uiSet_);
+    for (int i = 0; i < VkCtx::MAX_FRAMES_IN_FLIGHT; i++) {
+        aci.pSetLayouts = &terrainDSL_;
+        vkAllocateDescriptorSets(ctx.device, &aci, &terrainSet_[i]);
+        aci.pSetLayouts = &skyDSL_;
+        vkAllocateDescriptorSets(ctx.device, &aci, &skySet_[i]);
+        aci.pSetLayouts = &uiDSL_;
+        vkAllocateDescriptorSets(ctx.device, &aci, &uiSet_[i]);
+    }
 }
 
-void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist) {
+void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist, int slot) {
     Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.02f, 512.0f);
     Mat4 vp = Mat4::mul(proj, cam.view());
     cachedVP_ = vp;
@@ -540,7 +546,7 @@ void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist)
     u.tilePx = (float)atlas_.tileSize;
     u.dayLight = dayLight;
     u.sunX = sunDir.x; u.sunY = sunDir.y; u.sunZ = sunDir.z;
-    memcpy(terrainUBOMap_, &u, sizeof(UboData));
+    memcpy(terrainUBOMap_[slot], &u, sizeof(UboData));
 
     struct SkyUbo { float hx, hy, hz, ha; float zx, zy, zz, za; } s;
     // day sky
@@ -554,57 +560,86 @@ void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist)
     s.hx = horizon.x; s.hy = horizon.y; s.hz = horizon.z;
     s.ha = underwater ? 1.0f : 0.0f;   // reuse horizon.a as the underwater flag
     s.zx = zenith.x; s.zy = zenith.y; s.zz = zenith.z;
-    memcpy(skyUBOMap_, &s, sizeof(SkyUbo));
+    memcpy(skyUBOMap_[slot], &s, sizeof(SkyUbo));
 }
 
 // ---------------------------------------------------------------------------
 // chunk GPU upload
 // ---------------------------------------------------------------------------
-static void uploadPart(VkCtx& ctx, Chunk& c, bool opaque,
-                       const std::vector<TerrainVertex>& verts,
-                       const std::vector<uint32_t>& idx) {
+void Renderer::retireBuffer(VkBuffer b, VkDeviceMemory m, bool /*opaque*/, Chunk& /*c*/) {
+    if (!b && !m) return;
+    retired_.push_back({b, m, frameIdx_});
+}
+
+void Renderer::uploadPart(VkCtx& ctx, Chunk& c, bool opaque,
+                          const std::vector<TerrainVertex>& verts,
+                          const std::vector<uint32_t>& idx) {
     uint64_t& buf = opaque ? c.opaqueBuf : c.waterBuf;
     uint64_t& mem = opaque ? c.opaqueMem : c.waterMem;
     uint64_t& alloc = opaque ? c.opaqueAlloc : c.waterAlloc;
     uint32_t& count = opaque ? c.opaqueCount : c.waterCount;
     uint64_t& vertBytes = opaque ? c.opaqueVertBytes : c.waterVertBytes;
 
-    VkBuffer buffer = (VkBuffer)(uintptr_t)buf;
-    VkDeviceMemory memory = (VkDeviceMemory)(uintptr_t)mem;
+    VkBuffer oldBuf = (VkBuffer)(uintptr_t)buf;
+    VkDeviceMemory oldMem = (VkDeviceMemory)(uintptr_t)mem;
     VkDeviceSize needed = (VkDeviceSize)verts.size() * sizeof(TerrainVertex) + (VkDeviceSize)idx.size() * sizeof(uint32_t);
 
     if (verts.empty() && idx.empty()) {
-        if (buffer) vkDestroyBuffer(ctx.device, buffer, nullptr);
-        if (memory) vkFreeMemory(ctx.device, memory, nullptr);
+        // No geometry: retire the old buffer so frames in flight finish with it,
+        // then clear the chunk's GPU state.
+        retireBuffer(oldBuf, oldMem, opaque, c);
         buf = 0; mem = 0; alloc = 0; count = 0; vertBytes = 0;
         return;
     }
-    if (!buffer || alloc < needed) {
-        if (buffer) vkDestroyBuffer(ctx.device, buffer, nullptr);
-        if (memory) vkFreeMemory(ctx.device, memory, nullptr);
-        Buffer2 nb;
-        if (!createBuffer(ctx, needed, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, nb))
-            return;
-        buf = (uint64_t)(uintptr_t)nb.b;
-        mem = (uint64_t)(uintptr_t)nb.m;
-        alloc = (uint64_t)needed;
-        buffer = nb.b;
-        memory = nb.m;
-    }
+
+    // Always allocate a fresh buffer and retire the previous one. Rewriting a
+    // chunk buffer in place would race with a frame in flight that is reading it,
+    // so uploads are written to new buffers that are only referenced from this
+    // frame onward; the old one is freed once it is safe (multi-frame in flight).
+    retireBuffer(oldBuf, oldMem, opaque, c);
+    Buffer2 nb;
+    if (!createBuffer(ctx, needed, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, nb))
+        return;
     void* ptr;
-    if (vkMapMemory(ctx.device, memory, 0, needed, 0, &ptr) != VK_SUCCESS) return;
+    if (vkMapMemory(ctx.device, nb.m, 0, needed, 0, &ptr) != VK_SUCCESS) return;
     size_t vb = verts.size() * sizeof(TerrainVertex);
     memcpy(ptr, verts.data(), vb);
     memcpy((uint8_t*)ptr + vb, idx.data(), idx.size() * sizeof(uint32_t));
-    vkUnmapMemory(ctx.device, memory);
+    vkUnmapMemory(ctx.device, nb.m);
+    buf = (uint64_t)(uintptr_t)nb.b;
+    mem = (uint64_t)(uintptr_t)nb.m;
+    alloc = (uint64_t)needed;
     count = (uint32_t)idx.size();
     vertBytes = (uint64_t)vb;
 }
 
-void Renderer::gpuSync(VkCtx& ctx) {
-    if (ctx.lastSubmitFence)
-        vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
+void Renderer::flushRetired(VkCtx& ctx, uint64_t submittedFrames) {
+    // A buffer retired at frame r is safe to free once we know frame r has fully
+    // completed. submittedFrames is the logical frame index about to be produced;
+    // after its acquire fence wait, frames up to (submittedFrames - MAX_FRAMES)
+    // are done, so free any retired buffer older than that.
+    uint64_t floor = submittedFrames >= (uint64_t)VkCtx::MAX_FRAMES_IN_FLIGHT
+                         ? submittedFrames - (uint64_t)VkCtx::MAX_FRAMES_IN_FLIGHT : 0;
+    size_t i = 0;
+    while (i < retired_.size()) {
+        if (retired_[i].frame < floor) {
+            if (retired_[i].b) vkDestroyBuffer(ctx.device, retired_[i].b, nullptr);
+            if (retired_[i].m) vkFreeMemory(ctx.device, retired_[i].m, nullptr);
+            retired_[i] = retired_.back();
+            retired_.pop_back();
+        } else {
+            i++;
+        }
+    }
+}
+
+
+void Renderer::gpuSync(VkCtx&) {
+    // With multiple frames in flight, chunk vertex/index buffers are never rewritten
+    // or freed in place: uploads always go to a fresh buffer and retired buffers are
+    // freed only once the frames reading them have completed (flushRetired). So no
+    // per-frame GPU barrier is needed before world updates modify chunk meshes.
 }
 
 const uint8_t Renderer::kInvBlocks[] = {
@@ -627,13 +662,14 @@ void Renderer::setInventoryOpen(bool open) {
 }
 
 void Renderer::destroyChunkBuffers(VkCtx& ctx, Chunk& c) {
-    if (c.opaqueBuf) vkDestroyBuffer(ctx.device, (VkBuffer)(uintptr_t)c.opaqueBuf, nullptr);
-    if (c.opaqueMem) vkFreeMemory(ctx.device, (VkDeviceMemory)(uintptr_t)c.opaqueMem, nullptr);
-    if (c.waterBuf) vkDestroyBuffer(ctx.device, (VkBuffer)(uintptr_t)c.waterBuf, nullptr);
-    if (c.waterMem) vkFreeMemory(ctx.device, (VkDeviceMemory)(uintptr_t)c.waterMem, nullptr);
+    // Defer the free: a frame in flight may still be drawing this chunk. The buffers
+    // are released by flushRetired once those frames complete.
+    retireBuffer((VkBuffer)(uintptr_t)c.opaqueBuf, (VkDeviceMemory)(uintptr_t)c.opaqueMem, true, c);
+    retireBuffer((VkBuffer)(uintptr_t)c.waterBuf, (VkDeviceMemory)(uintptr_t)c.waterMem, false, c);
     c.opaqueBuf = c.opaqueMem = c.waterBuf = c.waterMem = 0;
     c.opaqueAlloc = c.waterAlloc = c.opaqueCount = c.waterCount = 0;
     c.opaqueVertBytes = c.waterVertBytes = 0;
+    (void)ctx;
 }
 
 // ---------------------------------------------------------------------------
@@ -651,19 +687,20 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
     if (pendingShot_.empty()) shotTaken_ = false;
 
     uint32_t imageIndex;
-    VkCtx::Frame& f = ctx.frames[frameIdx_ % ctx.frames.size()];
-    // Ensure the shared command buffer is free BEFORE acquiring (acquireNext resets
-    // f.fence, which may be the same fence we would otherwise wait on below).
-    if (ctx.lastSubmitFence)
-        vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
-    // Only now safe to rewrite the host-visible UBO — the GPU is done with it.
-    updateTerrainUBO(ctx, cam, renderDist);
+    curFrame_ = (int)(frameIdx_ % (uint64_t)VkCtx::MAX_FRAMES_IN_FLIGHT);
+    VkCtx::Frame& f = ctx.frames[curFrame_];
+    VkCommandBuffer cb = ctx.cmds[curFrame_];
+    // acquireNext waits on this slot's fence (the last use of this slot's command
+    // buffer, UBOs and descriptor sets has completed), so it is safe to rewrite
+    // them now. This lets the CPU run a frame ahead of the GPU instead of stalling.
     if (!ctx.acquireNext(f, imageIndex)) {
         ctx.recreateSwapchain(windowW_, windowH_);
         return false;
     }
-    frameIdx_++;
-    VkCommandBuffer cb = ctx.cmd;
+    // By acquiring this slot we know frames up to (frameIdx_ - MAX_FRAMES_IN_FLIGHT)
+    // have completed; free chunk buffers that were retired by those frames.
+    flushRetired(ctx, frameIdx_);
+    updateTerrainUBO(ctx, cam, renderDist, curFrame_);
     vkResetCommandBuffer(cb, 0);
     VkCommandBufferBeginInfo bi = {};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -702,7 +739,7 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
 
     // sky
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipe_);
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyLayout_, 0, 1, &skySet_, 0, nullptr);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyLayout_, 0, 1, &skySet_[curFrame_], 0, nullptr);
     vkCmdDraw(cb, 3, 1, 0, 0);
 
     drawChunks(ctx, cam);
@@ -758,11 +795,11 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
     }
 
     vkEndCommandBuffer(cb);
-    ctx.lastSubmitFence = f.fence;
-    if (!ctx.presentImage(imageIndex, f)) {
+    if (!ctx.presentImage(imageIndex, f, cb)) {
         ctx.recreateSwapchain(windowW_, windowH_);
         return false;
     }
+    frameIdx_++;
 
     if (shotTaken_ && !pendingShot_.empty()) {
         vkWaitForFences(ctx.device, 1, &f.fence, VK_TRUE, UINT64_MAX);
@@ -789,10 +826,11 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
 void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
     Frustum fr;
     fr.extract(cachedVP_);
+    VkCommandBuffer cb = ctx.cmds[curFrame_];
 
     // Pass 1: draw ALL opaque geometry
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipe_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_, 0, nullptr);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipe_);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_[curFrame_], 0, nullptr);
 
     const float camX = cam.pos.x, camY = cam.pos.y, camZ = cam.pos.z;
     const float f2 = fogEndWorld_ * fogEndWorld_;
@@ -820,17 +858,17 @@ void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
         draws++;
 
         Vec3 origin((float)(cx * 16), 0, (float)(cz * 16));
-        vkCmdPushConstants(ctx.cmd, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
+        vkCmdPushConstants(cb, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
         VkBuffer vb = (VkBuffer)(uintptr_t)c->opaqueBuf;
         VkDeviceSize off = 0;
-        vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &vb, &off);
-        vkCmdBindIndexBuffer(ctx.cmd, vb, c->opaqueVertBytes, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(ctx.cmd, c->opaqueCount, 1, 0, 0, 1);
+        vkCmdBindVertexBuffers(cb, 0, 1, &vb, &off);
+        vkCmdBindIndexBuffer(cb, vb, c->opaqueVertBytes, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cb, c->opaqueCount, 1, 0, 0, 1);
     });
 
     // Pass 2: draw ALL water (semi-transparent, must be after opaque)
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipe_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_, 0, nullptr);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipe_);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_[curFrame_], 0, nullptr);
 
     world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
         if (c->state.load() < 2) return;
@@ -838,12 +876,12 @@ void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
         if (!c->waterBuf || !c->waterCount) return;
 
         Vec3 origin((float)(cx * 16), 0, (float)(cz * 16));
-        vkCmdPushConstants(ctx.cmd, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
+        vkCmdPushConstants(cb, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
         VkBuffer vb = (VkBuffer)(uintptr_t)c->waterBuf;
         VkDeviceSize off = 0;
-        vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &vb, &off);
-        vkCmdBindIndexBuffer(ctx.cmd, vb, c->waterVertBytes, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(ctx.cmd, c->waterCount, 1, 0, 0, 1);
+        vkCmdBindVertexBuffers(cb, 0, 1, &vb, &off);
+        vkCmdBindIndexBuffer(cb, vb, c->waterVertBytes, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cb, c->waterCount, 1, 0, 0, 1);
     });
 
     debugDraws_ = draws;
@@ -1011,23 +1049,33 @@ void Renderer::drawUIOverlay(VkCtx& ctx, const Camera& cam, Input& in) {
     }
     prevMouse0_ = in.mouse[0];
 
-    memcpy(uiMap_, quads.data(), quads.size() * sizeof(UIVertex));
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipe_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiLayout_, 0, 1, &uiSet_, 0, nullptr);
-    VkBuffer ub = uiBuf_.b;
+    memcpy(uiMap_[curFrame_], quads.data(), quads.size() * sizeof(UIVertex));
+    VkCommandBuffer cb = ctx.cmds[curFrame_];
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipe_);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, uiLayout_, 0, 1, &uiSet_[curFrame_], 0, nullptr);
+    VkBuffer ub = uiBuf_[curFrame_].b;
     VkDeviceSize off = 0;
-    vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &ub, &off);
-    vkCmdDraw(ctx.cmd, (uint32_t)quads.size(), 1, 0, 0);
+    vkCmdBindVertexBuffers(cb, 0, 1, &ub, &off);
+    vkCmdDraw(cb, (uint32_t)quads.size(), 1, 0, 0);
 }
 
 void Renderer::shutdown(VkCtx& ctx) {
     if (shotBuf_) vkDestroyBuffer(ctx.device, shotBuf_, nullptr);
     if (shotMem_) vkFreeMemory(ctx.device, shotMem_, nullptr);
-    uiBuf_.destroy(ctx.device);
-    if (terrainUBOMap_) vkUnmapMemory(ctx.device, terrainUBO_.m);
-    terrainUBO_.destroy(ctx.device);
-    if (skyUBOMap_) vkUnmapMemory(ctx.device, skyUBO_.m);
-    skyUBO_.destroy(ctx.device);
+    for (int i = 0; i < VkCtx::MAX_FRAMES_IN_FLIGHT; i++) {
+        if (uiMap_[i]) vkUnmapMemory(ctx.device, uiBuf_[i].m);
+        uiBuf_[i].destroy(ctx.device);
+        if (terrainUBOMap_[i]) vkUnmapMemory(ctx.device, terrainUBO_[i].m);
+        terrainUBO_[i].destroy(ctx.device);
+        if (skyUBOMap_[i]) vkUnmapMemory(ctx.device, skyUBO_[i].m);
+        skyUBO_[i].destroy(ctx.device);
+    }
+    // All GPU work is done (device is idle); free any deferred chunk buffers.
+    for (auto& r : retired_) {
+        if (r.b) vkDestroyBuffer(ctx.device, r.b, nullptr);
+        if (r.m) vkFreeMemory(ctx.device, r.m, nullptr);
+    }
+    retired_.clear();
     if (pool_) vkDestroyDescriptorPool(ctx.device, pool_, nullptr);
     if (terrainDSL_) vkDestroyDescriptorSetLayout(ctx.device, terrainDSL_, nullptr);
     if (uiDSL_) vkDestroyDescriptorSetLayout(ctx.device, uiDSL_, nullptr);

@@ -214,14 +214,29 @@ bool VkCtx::init(Window& win, int w, int h) {
         lastError = "command pool failed";
         return false;
     }
+    cmds.resize(MAX_FRAMES_IN_FLIGHT);
     VkCommandBufferAllocateInfo cbai = {};
     cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cbai.commandPool = cmdPool;
     cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cbai.commandBufferCount = 1;
-    if (vkAllocateCommandBuffers(device, &cbai, &cmd) != VK_SUCCESS) {
+    cbai.commandBufferCount = (uint32_t)cmds.size();
+    if (vkAllocateCommandBuffers(device, &cbai, cmds.data()) != VK_SUCCESS) {
         lastError = "command buffer alloc failed";
         return false;
+    }
+
+    // Sync primitives: one per frame in flight (independent of the swapchain image
+    // count, which changes on resize). Each fence starts signalled.
+    frames.resize(MAX_FRAMES_IN_FLIGHT);
+    for (Frame& fr : frames) {
+        VkSemaphoreCreateInfo sci = {};
+        sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        vkCreateSemaphore(device, &sci, nullptr, &fr.avail);
+        vkCreateSemaphore(device, &sci, nullptr, &fr.done);
+        VkFenceCreateInfo fci = {};
+        fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        vkCreateFence(device, &fci, nullptr, &fr.fence);
     }
 
     if (!recreateSwapchain(w, h)) return false;
@@ -265,19 +280,12 @@ void VkCtx::selectSwapFormat() {
 
 void VkCtx::destroySwapchainObjects() {
     vkDeviceWaitIdle(device);
-    lastSubmitFence = VK_NULL_HANDLE;
     for (auto fb : framebuffers) vkDestroyFramebuffer(device, fb, nullptr);
     framebuffers.clear();
     for (auto v : swapViews) vkDestroyImageView(device, v, nullptr);
     swapViews.clear();
     if (swapchain) vkDestroySwapchainKHR(device, swapchain, nullptr);
     swapchain = VK_NULL_HANDLE;
-    for (auto& f : frames) {
-        if (f.avail) vkDestroySemaphore(device, f.avail, nullptr);
-        if (f.done) vkDestroySemaphore(device, f.done, nullptr);
-        if (f.fence) vkDestroyFence(device, f.fence, nullptr);
-    }
-    frames.clear();
 }
 
 void VkCtx::createDepth() {
@@ -385,19 +393,6 @@ bool VkCtx::recreateSwapchain(int w, int h) {
         vkCreateFramebuffer(device, &fci, nullptr, &fb);
         framebuffers.push_back(fb);
     }
-
-    for (size_t i = 0; i < swapImages.size(); i++) {
-        Frame f;
-        VkSemaphoreCreateInfo sci = {};
-        sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-        vkCreateSemaphore(device, &sci, nullptr, &f.avail);
-        vkCreateSemaphore(device, &sci, nullptr, &f.done);
-        VkFenceCreateInfo fci = {};
-        fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        vkCreateFence(device, &fci, nullptr, &f.fence);
-        frames.push_back(f);
-    }
     return true;
 }
 
@@ -409,7 +404,7 @@ bool VkCtx::acquireNext(Frame& f, uint32_t& imageIndex) {
     return true;
 }
 
-bool VkCtx::presentImage(uint32_t imageIndex, Frame& f) {
+bool VkCtx::presentImage(uint32_t imageIndex, Frame& f, VkCommandBuffer cmd) {
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si = {};
     si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -438,6 +433,12 @@ void VkCtx::shutdown() {
     destroySwapchainObjects();
     destroyDepth();
     if (renderPass) vkDestroyRenderPass(device, renderPass, nullptr);
+    for (Frame& f : frames) {
+        if (f.avail) vkDestroySemaphore(device, f.avail, nullptr);
+        if (f.done) vkDestroySemaphore(device, f.done, nullptr);
+        if (f.fence) vkDestroyFence(device, f.fence, nullptr);
+    }
+    frames.clear();
     if (cmdPool) vkDestroyCommandPool(device, cmdPool, nullptr);
     if (device) vkDestroyDevice(device, nullptr);
     if (surface) vkDestroySurfaceKHR(instance, surface, nullptr);

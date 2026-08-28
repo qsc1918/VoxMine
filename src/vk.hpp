@@ -31,15 +31,18 @@ struct VkCtx {
     std::vector<VkFramebuffer> framebuffers;
 
     VkCommandPool cmdPool = VK_NULL_HANDLE;
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    // One command buffer per frame in flight. The renderer and menu submit one
+    // frame per slot, so slot N is only reset after slot N's fence is signalled
+    // (see acquireNext), allowing CPU/GPU overlap.
+    static const int MAX_FRAMES_IN_FLIGHT = 2;
+    std::vector<VkCommandBuffer> cmds;
 
     struct Frame {
         VkSemaphore avail = VK_NULL_HANDLE;
         VkSemaphore done = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
     };
-    std::vector<Frame> frames; // one per swapchain image
-    VkFence lastSubmitFence = VK_NULL_HANDLE; // fences cmd buffer reuse across frames
+    std::vector<Frame> frames; // size == MAX_FRAMES_IN_FLIGHT
 
     bool ok = false;
     bool vsync = true;
@@ -54,7 +57,7 @@ struct VkCtx {
     void destroyDepth();
 
     // submits the recorded command buffer and presents; returns false if swapchain is stale.
-    bool presentImage(uint32_t imageIndex, Frame& f);
+    bool presentImage(uint32_t imageIndex, Frame& f, VkCommandBuffer cmd);
     bool acquireNext(Frame& f, uint32_t& imageIndex);
 
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props) const;

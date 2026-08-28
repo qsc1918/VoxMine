@@ -494,16 +494,22 @@ int Menu::renderMenu(VkCtx& ctx, Menuscreen screen, const MenuData& data,
 
     // frame
     uint32_t imageIndex;
-    VkCtx::Frame& f = ctx.frames[frameIdx_ % ctx.frames.size()];
-    if (ctx.lastSubmitFence)
-        vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
+    uint32_t slot = (uint32_t)(frameIdx_ % (uint64_t)VkCtx::MAX_FRAMES_IN_FLIGHT);
+    VkCtx::Frame& f = ctx.frames[slot];
+    // The menu shares a single staging/quad texture buffer across frames. Wait for
+    // the previous submission before rewriting it so a frame in flight never reads
+    // resources we are about to overwrite.
+    if (frameIdx_ > 0) {
+        uint32_t pslot = (uint32_t)((frameIdx_ - 1) % (uint64_t)VkCtx::MAX_FRAMES_IN_FLIGHT);
+        vkWaitForFences(ctx.device, 1, &ctx.frames[pslot].fence, VK_TRUE, UINT64_MAX);
+    }
     if (!ctx.acquireNext(f, imageIndex)) {
         ctx.recreateSwapchain(diw_, dih_);
         return MENU_NONE;
     }
     frameIdx_++;
 
-    VkCommandBuffer cb = ctx.cmd;
+    VkCommandBuffer cb = ctx.cmds[slot];
     vkResetCommandBuffer(cb, 0);
     VkCommandBufferBeginInfo bi = {};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -553,8 +559,7 @@ int Menu::renderMenu(VkCtx& ctx, Menuscreen screen, const MenuData& data,
 
     vkCmdEndRenderPass(cb);
     vkEndCommandBuffer(cb);
-    ctx.lastSubmitFence = f.fence;
-    if (!ctx.presentImage(imageIndex, f)) { ctx.recreateSwapchain(diw_, dih_); return MENU_NONE; }
+    if (!ctx.presentImage(imageIndex, f, cb)) { ctx.recreateSwapchain(diw_, dih_); return MENU_NONE; }
 
     // ---- render-distance slider interaction (drag) ----
     if (sliderActive_) {

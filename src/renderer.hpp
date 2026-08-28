@@ -64,10 +64,15 @@ private:
     bool createPipelines(VkCtx& ctx);
     void createAtlasTexture(VkCtx& ctx);
     void createDescriptors(VkCtx& ctx);
-    void updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist);
+    void updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist, int slot);
     void drawChunks(VkCtx& ctx, const Camera& cam);
     void drawUIOverlay(VkCtx& ctx, const Camera& cam, Input& in);
     void captureScreenshot(VkCtx& ctx, uint32_t imageIndex);
+    void uploadPart(VkCtx& ctx, Chunk& c, bool opaque,
+                    const std::vector<TerrainVertex>& verts,
+                    const std::vector<uint32_t>& idx);
+    void retireBuffer(VkBuffer b, VkDeviceMemory m, bool opaque, Chunk& c);
+    void flushRetired(VkCtx& ctx, uint64_t submittedFrames);
 
     World* world_ = nullptr;
     VkCtx* ctxPtr_ = nullptr;
@@ -92,17 +97,24 @@ private:
     VkImageView atlasView_ = VK_NULL_HANDLE;
     VkSampler atlasSampler_ = VK_NULL_HANDLE;
 
-    Buffer2 terrainUBO_;
-    void* terrainUBOMap_ = nullptr;
-    VkDescriptorSet terrainSet_ = VK_NULL_HANDLE;
+    Buffer2 terrainUBO_[VkCtx::MAX_FRAMES_IN_FLIGHT];
+    void* terrainUBOMap_[VkCtx::MAX_FRAMES_IN_FLIGHT] = {};
+    VkDescriptorSet terrainSet_[VkCtx::MAX_FRAMES_IN_FLIGHT] = {};
 
-    Buffer2 skyUBO_;
-    void* skyUBOMap_ = nullptr;
-    VkDescriptorSet skySet_ = VK_NULL_HANDLE;
+    Buffer2 skyUBO_[VkCtx::MAX_FRAMES_IN_FLIGHT];
+    void* skyUBOMap_[VkCtx::MAX_FRAMES_IN_FLIGHT] = {};
+    VkDescriptorSet skySet_[VkCtx::MAX_FRAMES_IN_FLIGHT] = {};
 
-    Buffer2 uiBuf_;
-    void* uiMap_ = nullptr;
-    VkDescriptorSet uiSet_ = VK_NULL_HANDLE;
+    Buffer2 uiBuf_[VkCtx::MAX_FRAMES_IN_FLIGHT];
+    void* uiMap_[VkCtx::MAX_FRAMES_IN_FLIGHT] = {};
+    VkDescriptorSet uiSet_[VkCtx::MAX_FRAMES_IN_FLIGHT] = {};
+
+    // Chunk GPU buffers that are no longer referenced but cannot be freed while a
+    // frame in flight may still read them. Freed once enough frames have elapsed.
+    struct RetiredBuf { VkBuffer b; VkDeviceMemory m; uint64_t frame; };
+    std::vector<RetiredBuf> retired_;
+
+    int curFrame_ = 0;   // frame slot (0..MAX_FRAMES_IN_FLIGHT-1) being recorded now
 
     VkBuffer shotBuf_ = VK_NULL_HANDLE;
     VkDeviceMemory shotMem_ = VK_NULL_HANDLE;
