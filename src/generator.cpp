@@ -134,23 +134,26 @@ void generateColumn(uint32_t seed, int cx, int cz, uint8_t* out) {
         }
     }
 
-    // caves (3D) �?keep them well below the terrain surface so they never breach
-    // the ground and form crater-like pits across the landscape.
+    // caves (3D) - precompute per-column surface height to avoid repeated scanning
+    int localTop[16][16];
+    for (int lx = 0; lx < 16; lx++) {
+        for (int lz = 0; lz < 16; lz++) {
+            localTop[lx][lz] = -1;
+            for (int yy = WORLD_HEIGHT - 1; yy >= 0; yy--) {
+                uint8_t b = ref(out, lx, yy, lz);
+                if (b != B_AIR && b != B_WATER) { localTop[lx][lz] = yy; break; }
+            }
+        }
+    }
     for (int y = 3; y < 90; y++) {
         for (int lx = 0; lx < 16; lx++) {
             for (int lz = 0; lz < 16; lz++) {
                 int wx = baseWX + lx, wz = baseWZ + lz;
                 uint8_t cur = ref(out, lx, y, lz);
                 if (cur == B_AIR || cur == B_BEDROCK) continue;
-                // local surface height for this column (topmost solid block)
-                int localTop = -1;
-                for (int yy = WORLD_HEIGHT - 1; yy >= 0; yy--) {
-                    uint8_t b = ref(out, lx, yy, lz);
-                    if (b != B_AIR && b != B_WATER) { localTop = yy; break; }
-                }
-                if (localTop < 0) continue;
-                // only carve if clearly below the surface (leave a solid crust)
-                if (y >= localTop - 4) continue;
+                int top = localTop[lx][lz];
+                if (top < 0) continue;
+                if (y >= top - 4) continue;
                 float cn = caveN.fbm3(wx * 0.045f, y * 0.07f, wz * 0.045f, 3, 2.0f, 0.5f);
                 float cn2 = caveN2.fbm3(wx * 0.09f, y * 0.14f, wz * 0.09f, 2, 2.0f, 0.5f);
                 float v = cn * 0.72f + cn2 * 0.28f;

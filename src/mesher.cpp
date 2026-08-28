@@ -43,14 +43,23 @@ const float kAoBright[4] = {0.42f, 0.64f, 0.82f, 1.0f};
 const float kFaceBright[6] = {0.80f, 0.80f, 1.0f, 0.55f, 0.80f, 0.80f};
 const Vec3 kSun(0.42f, 0.82f, 0.32f);
 
+// Precomputed shade lookup table: kShade[face][ao][water]
+uint8_t kShade[6][4][2];
+struct ShadeInit { ShadeInit() {
+    for (int f = 0; f < 6; f++) {
+        const Vec3& nrm = *reinterpret_cast<const Vec3*>(&kNormal[f][0]);
+        float sun = 0.55f + 0.45f * std::max(0.0f, dot(nrm, kSun) * 0.5f + 0.5f);
+        for (int a = 0; a < 4; a++) {
+            float br = kFaceBright[f] * kAoBright[a] * sun;
+            kShade[f][a][0] = (uint8_t)(std::min(1.0f, std::max(0.0f, br)) * 255.0f);
+            float bw = br * 0.82f;
+            kShade[f][a][1] = (uint8_t)(std::min(1.0f, std::max(0.0f, bw)) * 255.0f);
+        }
+    }
+} } shadeInit;
+
 inline uint8_t bakeShade(int face, int ao, bool water) {
-    const Vec3& nrm = *reinterpret_cast<const Vec3*>(&kNormal[face][0]);
-    float sun = 0.55f + 0.45f * std::max(0.0f, dot(nrm, kSun) * 0.5f + 0.5f);
-    float br = kFaceBright[face] * kAoBright[ao] * sun;
-    if (water) br *= 0.82f;
-    if (br > 1.0f) br = 1.0f;
-    if (br < 0.0f) br = 0.0f;
-    return (uint8_t)(br * 255.0f);
+    return kShade[face][ao][water ? 1 : 0];
 }
 
 } // namespace
@@ -61,6 +70,10 @@ ChunkMeshData buildChunkMesh(const MeshView& view) {
     auto& oi = m.opaqueIdx;
     auto& wv = m.waterVerts;
     auto& wi = m.waterIdx;
+    ov.reserve(8192);
+    oi.reserve(12288);
+    wv.reserve(512);
+    wi.reserve(768);
 
     for (int y = 0; y < WORLD_HEIGHT; y++) {
         for (int z = 0; z < 16; z++) {
