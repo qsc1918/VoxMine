@@ -122,6 +122,7 @@ private:
     int shotW_ = 0, shotH_ = 0;
     int debugDraws_ = 0;
     Mat4 cachedVP_;
+    float fogEndWorld_ = 0.0f;   // world-space distance at which fog fully obscures a chunk
     float timeOfDay_ = 0.25f;
     float timeScale_ = 1.0f / 1200.0f; // full day/night cycle in 20 minutes
 

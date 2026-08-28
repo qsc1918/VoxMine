@@ -532,6 +532,7 @@ void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist)
     u.underwater = underwater ? 1.0f : 0.0f;
     u.fogStart = renderDist * 16.0f * 0.70f;
     u.fogEnd = renderDist * 16.0f * 0.94f;
+    fogEndWorld_ = u.fogEnd;
     u.skyR = 0.60f; u.skyG = 0.77f;
     u.skyB = 0.90f;
     u.atlasPx = (float)atlas_.width;
@@ -793,11 +794,28 @@ void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipe_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_, 0, nullptr);
 
+    const float camX = cam.pos.x, camY = cam.pos.y, camZ = cam.pos.z;
+    const float f2 = fogEndWorld_ * fogEndWorld_;
+    auto chunkCulled = [&](int cx, int cz, const Frustum& fr) {
+        float minX = cx * 16.0f, minZ = cz * 16.0f;
+        if (!fr.testAABB(minX, 0, minZ, minX + 16, WORLD_HEIGHT, minZ + 16)) return true;
+        // Fully fogged chunks render as a solid fog/sky colour (fog=1), so they are
+        // invisible. Cull any chunk whose nearest point is beyond the fog end to skip
+        // the wasted geometry at high render distances.
+        if (f2 > 0.0f) {
+            float nx = clampf(camX, minX, minX + 16);
+            float ny = clampf(camY, 0.0f, (float)WORLD_HEIGHT);
+            float nz = clampf(camZ, minZ, minZ + 16);
+            float dx = nx - camX, dy = ny - camY, dz = nz - camZ;
+            if (dx * dx + dy * dy + dz * dz > f2) return true;
+        }
+        return false;
+    };
+
     int draws = 0;
     world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
         if (c->state.load() < 2) return;
-        float minX = cx * 16.0f, minZ = cz * 16.0f;
-        if (!fr.testAABB(minX, 0, minZ, minX + 16, WORLD_HEIGHT, minZ + 16)) return;
+        if (chunkCulled(cx, cz, fr)) return;
         if (!c->opaqueBuf || !c->opaqueCount) return;
         draws++;
 
@@ -816,8 +834,7 @@ void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
 
     world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
         if (c->state.load() < 2) return;
-        float minX = cx * 16.0f, minZ = cz * 16.0f;
-        if (!fr.testAABB(minX, 0, minZ, minX + 16, WORLD_HEIGHT, minZ + 16)) return;
+        if (chunkCulled(cx, cz, fr)) return;
         if (!c->waterBuf || !c->waterCount) return;
 
         Vec3 origin((float)(cx * 16), 0, (float)(cz * 16));
