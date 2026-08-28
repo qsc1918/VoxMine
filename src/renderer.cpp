@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <tuple>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -871,39 +872,49 @@ void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
         return false;
     };
 
-    int draws = 0;
+    // Single traversal: collect visible chunks once (frustum + fog cull + state check
+    // under one mapLock acquisition) instead of iterating every chunk twice.
+    std::vector<std::tuple<std::shared_ptr<Chunk>, int, int>> visible;
+    visible.reserve(512);
     world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
         if (c->state.load() < 2) return;
         if (chunkCulled(cx, cz, fr)) return;
-        if (!c->opaqueBuf || !c->opaqueCount) return;
-        draws++;
+        visible.emplace_back(c, cx, cz);
+    });
 
+    int draws = 0;
+    // Pass 1: draw ALL opaque geometry
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipe_);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_[curFrame_], 0, nullptr);
+    for (auto& v : visible) {
+        Chunk& c = *std::get<0>(v);
+        if (!c.opaqueBuf || !c.opaqueCount) continue;
+        draws++;
+        int cx = std::get<1>(v), cz = std::get<2>(v);
         Vec3 origin((float)(cx * 16), 0, (float)(cz * 16));
         vkCmdPushConstants(cb, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
-        VkBuffer vb = (VkBuffer)(uintptr_t)c->opaqueBuf;
+        VkBuffer vb = (VkBuffer)(uintptr_t)c.opaqueBuf;
         VkDeviceSize off = 0;
         vkCmdBindVertexBuffers(cb, 0, 1, &vb, &off);
-        vkCmdBindIndexBuffer(cb, vb, c->opaqueVertBytes, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cb, c->opaqueCount, 1, 0, 0, 1);
-    });
+        vkCmdBindIndexBuffer(cb, vb, c.opaqueVertBytes, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cb, c.opaqueCount, 1, 0, 0, 1);
+    }
 
     // Pass 2: draw ALL water (semi-transparent, must be after opaque)
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipe_);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_[curFrame_], 0, nullptr);
-
-    world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
-        if (c->state.load() < 2) return;
-        if (chunkCulled(cx, cz, fr)) return;
-        if (!c->waterBuf || !c->waterCount) return;
-
+    for (auto& v : visible) {
+        Chunk& c = *std::get<0>(v);
+        if (!c.waterBuf || !c.waterCount) continue;
+        int cx = std::get<1>(v), cz = std::get<2>(v);
         Vec3 origin((float)(cx * 16), 0, (float)(cz * 16));
         vkCmdPushConstants(cb, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
-        VkBuffer vb = (VkBuffer)(uintptr_t)c->waterBuf;
+        VkBuffer vb = (VkBuffer)(uintptr_t)c.waterBuf;
         VkDeviceSize off = 0;
         vkCmdBindVertexBuffers(cb, 0, 1, &vb, &off);
-        vkCmdBindIndexBuffer(cb, vb, c->waterVertBytes, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cb, c->waterCount, 1, 0, 0, 1);
-    });
+        vkCmdBindIndexBuffer(cb, vb, c.waterVertBytes, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cb, c.waterCount, 1, 0, 0, 1);
+    }
 
     debugDraws_ = draws;
 }
