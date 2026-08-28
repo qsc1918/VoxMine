@@ -14,6 +14,82 @@ static const char* kDeviceExts[] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 };
 
+// ---------------------------------------------------------------------------
+// GPU / driver info (printed to the console at startup)
+// ---------------------------------------------------------------------------
+static const char* deviceTypeName(VkPhysicalDeviceType t) {
+    switch (t) {
+        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:  return "Discrete (独立显卡)";
+        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return "Integrated (核显/集显)";
+        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:   return "Virtual (虚拟)";
+        case VK_PHYSICAL_DEVICE_TYPE_CPU:           return "CPU (软件渲染)";
+        default:                                    return "Other";
+    }
+}
+
+static const char* vendorName(uint32_t vid) {
+    switch (vid) {
+        case 0x10DE: return "NVIDIA";
+        case 0x1002: return "AMD";
+        case 0x8086: return "Intel";
+        case 0x13B5: return "Arm";
+        case 0x1014: return "IBM";
+        case 0x1AE0: return "Google";
+        case 0x5143: return "Qualcomm";
+        default:     return "Unknown";
+    }
+}
+
+static void printDriverVersion(uint32_t vendorID, uint32_t dv) {
+    if (vendorID == 0x10DE) { // NVIDIA encodes its real driver version
+        printf("        Driver version: %u.%u.%u  (raw 0x%08X)\n",
+               (dv >> 22) & 0x1FFu, (dv >> 14) & 0xFFu, dv & 0x3FFFu, dv);
+    } else {
+        printf("        Driver version (Vulkan): %u.%u.%u  (raw 0x%08X)\n",
+               VK_VERSION_MAJOR(dv), VK_VERSION_MINOR(dv), VK_VERSION_PATCH(dv), dv);
+    }
+}
+
+static void printDeviceInfo(int index, VkPhysicalDevice d, bool usable) {
+    VkPhysicalDeviceProperties p;
+    vkGetPhysicalDeviceProperties(d, &p);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(d, &mp);
+    VkPhysicalDeviceFeatures ft;
+    vkGetPhysicalDeviceFeatures(d, &ft);
+
+    VkDeviceSize deviceLocal = 0;   // sum of device-local heaps (dedicated VRAM)
+    for (uint32_t i = 0; i < mp.memoryHeapCount; i++)
+        if (mp.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+            deviceLocal += mp.memoryHeaps[i].size;
+
+    printf("  ----------------------------------------------------------\n");
+    printf("  GPU [%d]: %s\n", index, p.deviceName);
+    printf("      Type             : %s\n", deviceTypeName(p.deviceType));
+    printf("      Vendor           : %s (0x%04X)  Device 0x%04X\n",
+           vendorName(p.vendorID), p.vendorID, p.deviceID);
+    printDriverVersion(p.vendorID, p.driverVersion);
+    printf("        Vulkan API     : %u.%u.%u\n",
+           VK_VERSION_MAJOR(p.apiVersion), VK_VERSION_MINOR(p.apiVersion), VK_VERSION_PATCH(p.apiVersion));
+    printf("        Dedicated VRAM : %.0f MB\n", (double)deviceLocal / (1024.0 * 1024.0));
+    printf("        Memory heaps   : %u\n", mp.memoryHeapCount);
+    for (uint32_t i = 0; i < mp.memoryHeapCount; i++) {
+        printf("          heap %u      : %.0f MB  %s\n", i,
+               (double)mp.memoryHeaps[i].size / (1024.0 * 1024.0),
+               (mp.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                   ? "device-local (VRAM)" : "shared/system");
+    }
+    printf("        Limits         : maxImage2D=%ux%u  maxAnisotropy=%.1f  maxSamples=0x%X\n",
+           p.limits.maxImageDimension2D, p.limits.maxImageDimension2D,
+           p.limits.maxSamplerAnisotropy, p.limits.framebufferColorSampleCounts);
+    printf("        Features       : anisotropy=%s  tessellation=%s  geometryShader=%s\n",
+           ft.samplerAnisotropy ? "yes" : "no", ft.tessellationShader ? "yes" : "no",
+           ft.geometryShader ? "yes" : "no");
+    printf("        Usable for rendering: %s\n", usable ? "yes" : "no");
+    printf("  ----------------------------------------------------------\n");
+}
+
+
 bool VkCtx::init(Window& win, int w, int h) {
     if (volkInitialize() != VK_SUCCESS) {
         lastError = "volkInitialize failed";
@@ -87,8 +163,18 @@ bool VkCtx::init(Window& win, int w, int h) {
     std::vector<VkPhysicalDevice> devices(devCount);
     vkEnumeratePhysicalDevices(instance, &devCount, devices.data());
 
+    printf("\n");
+    printf("======================================================================\n");
+    printf(" VoxMine - Graphics / GPU information\n");
+    printf("======================================================================\n");
+    printf(" Vulkan instance API      : %u.%u.%u\n",
+           VK_VERSION_MAJOR(app.apiVersion), VK_VERSION_MINOR(app.apiVersion), VK_VERSION_PATCH(app.apiVersion));
+    printf(" Detected physical devices: %u\n", devCount);
+
     int bestScore = -1;
-    for (VkPhysicalDevice d : devices) {
+    int bestIndex = -1;
+    for (uint32_t di = 0; di < devCount; di++) {
+        VkPhysicalDevice d = devices[di];
         vkGetPhysicalDeviceProperties(d, &props);
         uint32_t qfCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(d, &qfCount, nullptr);
@@ -109,9 +195,11 @@ bool VkCtx::init(Window& win, int w, int h) {
         for (auto& e : exts)
             if (strcmp(e.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) hasSwap = true;
         int score = (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 100 : 50);
+        printDeviceInfo((int)di, d, hasGfx && hasSwap);
         if (hasGfx && hasSwap && score > bestScore) {
             bestScore = score;
             phys = d;
+            bestIndex = (int)di;
         }
     }
     if (phys == VK_NULL_HANDLE) {
@@ -119,6 +207,10 @@ bool VkCtx::init(Window& win, int w, int h) {
         return false;
     }
     vkGetPhysicalDeviceProperties(phys, &props);
+    printf("\n -> Using GPU [%d]: %s (%s)\n", bestIndex, props.deviceName,
+           deviceTypeName(props.deviceType));
+    printf("======================================================================\n\n");
+    fflush(stdout);
 
     // ---- device ----
     uint32_t qfCount = 0;
