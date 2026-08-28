@@ -173,6 +173,8 @@ bool VkCtx::init(Window& win, int w, int h) {
 
     int bestScore = -1;
     int bestIndex = -1;
+    uint32_t bestGfxFamily = 0;
+    bool foundDiscrete = false;
     for (uint32_t di = 0; di < devCount; di++) {
         VkPhysicalDevice d = devices[di];
         vkGetPhysicalDeviceProperties(d, &props);
@@ -181,11 +183,12 @@ bool VkCtx::init(Window& win, int w, int h) {
         std::vector<VkQueueFamilyProperties> qfs(qfCount);
         vkGetPhysicalDeviceQueueFamilyProperties(d, &qfCount, qfs.data());
         bool hasGfx = false, hasSwap = false;
+        uint32_t gfxFamily = 0;
         for (uint32_t i = 0; i < qfCount; i++) {
             if (qfs[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 VkBool32 support = VK_FALSE;
                 vkGetPhysicalDeviceSurfaceSupportKHR(d, i, surface, &support);
-                if (support) { hasGfx = true; graphicsFamily = i; break; }
+                if (support) { hasGfx = true; gfxFamily = i; break; }
             }
         }
         uint32_t extCount = 0;
@@ -194,21 +197,41 @@ bool VkCtx::init(Window& win, int w, int h) {
         vkEnumerateDeviceExtensionProperties(d, nullptr, &extCount, exts.data());
         for (auto& e : exts)
             if (strcmp(e.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) hasSwap = true;
+        if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) foundDiscrete = true;
         int score = (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 100 : 50);
         printDeviceInfo((int)di, d, hasGfx && hasSwap);
-        if (hasGfx && hasSwap && score > bestScore) {
-            bestScore = score;
+        bool usable = hasGfx && hasSwap;
+        if (desiredGpuIndex >= 0) {
+            // Force a specific device (by enumeration index).
+            if ((int)di == desiredGpuIndex) {
+                if (usable) { phys = d; bestGfxFamily = gfxFamily; bestIndex = (int)di; bestScore = score; }
+            }
+        } else if (usable && score > bestScore) {
             phys = d;
+            bestGfxFamily = gfxFamily;
             bestIndex = (int)di;
+            bestScore = score;
         }
     }
     if (phys == VK_NULL_HANDLE) {
-        lastError = "no suitable device";
+        lastError = desiredGpuIndex >= 0 ? "requested GPU index not usable" : "no suitable device";
         return false;
     }
+    graphicsFamily = bestGfxFamily;   // family of the device actually selected
     vkGetPhysicalDeviceProperties(phys, &props);
     printf("\n -> Using GPU [%d]: %s (%s)\n", bestIndex, props.deviceName,
            deviceTypeName(props.deviceType));
+    if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+        if (foundDiscrete) {
+            printf(" [warn] This machine also has a discrete GPU, but it is not being used.\n");
+            printf("        If Vulkan renders on the integrated GPU, fix the driver and/or set the\n");
+            printf("        per-app graphics preference to 'High performance' (Windows Display Settings\n");
+            printf("        or the NVIDIA Control Panel), or force it with --gpu-index N.\n");
+        } else {
+            printf(" [note] Only an integrated GPU is exposed to Vulkan. If you expect a discrete card,\n");
+            printf("        the GPU driver is likely not fully/correctly installed.\n");
+        }
+    }
     printf("======================================================================\n\n");
     fflush(stdout);
 

@@ -32,6 +32,7 @@ struct Args {
     bool drive = false;
     bool noVsync = false;
     bool invStart = false;
+    int gpuIndex = -1;
     std::string menuShot;
     int menuScreen = 1; // Menuscreen::MainMenu
 };
@@ -57,12 +58,13 @@ static Args parseArgs(int argc, char** argv) {
         else if (arg == "--drive") a.drive = true;
         else if (arg == "--no-vsync") a.noVsync = true;
         else if (arg == "--inventory") a.invStart = true;
+        else if (arg == "--gpu-index") a.gpuIndex = std::stoi(next());
         else if (arg == "--menu-shot") a.menuShot = next();
         else if (arg == "--menu-screen") a.menuScreen = std::stoi(next());
         else if (arg == "--help") {
             printf("Usage: voxmine [--seed N] [--render-dist N] [--threads N] [--pos x,y,z]\n"
                    "  [--screenshot out.png] [--frames N] [--no-vsync] [--no-ui]\n"
-                   "  [--time f] [--drive] [--break x,y,z] [--inventory]\n");
+                   "  [--time f] [--drive] [--break x,y,z] [--inventory] [--gpu-index N]\n");
         }
     }
     return a;
@@ -118,6 +120,7 @@ int main(int argc, char** argv) {
 
     VkCtx ctx;
     ctx.vsync = a.noVsync ? false : opts.vsync;
+    ctx.desiredGpuIndex = a.gpuIndex;
     if (!ctx.init(win, 1280, 720)) { printf("Vulkan init failed: %s\n", ctx.lastError.c_str()); return 1; }
 
     Renderer renderer;

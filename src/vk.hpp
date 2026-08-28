@@ -46,6 +46,7 @@ struct VkCtx {
 
     bool ok = false;
     bool vsync = true;
+    int desiredGpuIndex = -1; // >=0 forces that physical device index (--gpu-index)
     std::string lastError;
 
     bool init(Window& win, int w, int h);
