@@ -34,7 +34,7 @@ add_executable(voxmine
 
 target_include_directories(voxmine PRIVATE src ${VK}/Include ${VK}/Include/volk)
 target_compile_definitions(voxmine PRIVATE VK_NO_PROTOTYPES)
-target_compile_options(voxmine PRIVATE -O2 -march=native -fno-rtti)
+target_compile_options(voxmine PRIVATE -O3 -march=native -fno-rtti)
 target_link_libraries(voxmine PRIVATE user32 gdi32 ole32 oleaut32)
 
 # shaders
