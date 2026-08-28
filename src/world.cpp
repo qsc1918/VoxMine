@@ -334,6 +334,9 @@ void World::update(float px, float pz, int renderDist) {
     int ccz = floordiv((int)std::floor(pz), CHUNK_SIZE);
 
     // ensure chunks exist + queue generation
+    // Step 1: collect chunks needing generation under mapLock_ (no nested lock)
+    struct NeedGen { int cx, cz; uint64_t prio; };
+    std::vector<NeedGen> toGen;
     for (int r = 0; r <= renderDist; r++) {
         int x0 = ccx - r, x1 = ccx + r;
         int z0 = ccz - r, z1 = ccz + r;
@@ -341,28 +344,30 @@ void World::update(float px, float pz, int renderDist) {
             for (int cz = z0; cz <= z1; cz++) {
                 if (r > 0 && cx > x0 && cx < x1 && cz > z0 && cz < z1) continue;
                 uint64_t key = chunkKey(cx, cz);
-                bool needGen = false;
-                {
-                    std::lock_guard<std::mutex> lk(mapLock_);
-                    auto it = chunks_.find(key);
-                    if (it == chunks_.end()) {
-                        auto c = std::make_shared<Chunk>();
-                        chunks_[key] = c;
-                        needGen = true;
-                    } else if (it->second->state.load() == 0) {
-                        std::lock_guard<std::mutex> qlk(queueLock_);
-                        if (!queuedGen_.count(key) && !generating_.count(key))
-                            needGen = true;
-                    }
-                }
-                if (needGen) {
+                std::lock_guard<std::mutex> lk(mapLock_);
+                auto it = chunks_.find(key);
+                if (it == chunks_.end()) {
+                    auto c = std::make_shared<Chunk>();
+                    chunks_[key] = c;
                     float wx = cx * 16.0f + 8.0f, wz = cz * 16.0f + 8.0f;
                     float dx = wx - px, dz = wz - pz;
-                    uint64_t prio = (uint64_t)(dx * dx + dz * dz);
-                    enqueue(false, cx, cz, prio);
+                    toGen.push_back({cx, cz, (uint64_t)(dx * dx + dz * dz)});
+                } else if (it->second->state.load() == 0) {
+                    float wx = cx * 16.0f + 8.0f, wz = cz * 16.0f + 8.0f;
+                    float dx = wx - px, dz = wz - pz;
+                    toGen.push_back({cx, cz, (uint64_t)(dx * dx + dz * dz)});
                 }
             }
         }
+    }
+    // Step 2: enqueue generation (acquires queueLock_ separately, no nesting)
+    for (auto& g : toGen) {
+        uint64_t key = chunkKey(g.cx, g.cz);
+        {
+            std::lock_guard<std::mutex> qlk(queueLock_);
+            if (queuedGen_.count(key) || generating_.count(key)) continue;
+        }
+        enqueue(false, g.cx, g.cz, g.prio);
     }
 
     // unload far chunks
