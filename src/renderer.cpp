@@ -496,6 +496,7 @@ void Renderer::createDescriptors(VkCtx& ctx) {
 void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist) {
     Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.02f, 512.0f);
     Mat4 vp = Mat4::mul(proj, cam.view());
+    cachedVP_ = vp;
 
     // day/night cycle: timeOfDay in [0,1]; 0.0 = noon, 0.5 = midnight
     float tod = (float)(timeOfDay_);
@@ -779,10 +780,8 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
 }
 
 void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
-    Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.02f, 512.0f);
-    Mat4 vp = Mat4::mul(proj, cam.view());
     Frustum fr;
-    fr.extract(vp);
+    fr.extract(cachedVP_);
 
     // Pass 1: draw ALL opaque geometry
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipe_);
@@ -836,8 +835,7 @@ void Renderer::drawUIOverlay(VkCtx& ctx, const Camera& cam, Input& in) {
     Vec3 fwd = cam.forward();
     RayHit hit = raycastWorld(*world_, cam.pos, fwd, 6.0f);
 
-    Mat4 proj = Mat4::perspective(1.22f, (float)windowW_ / (float)windowH_, 0.02f, 512.0f);
-    Mat4 vp = Mat4::mul(proj, cam.view());
+    Mat4 vp = cachedVP_;
 
     // build UI quads
     if (in.keys['1']) { selectedSlot_ = 0; placementBlock_ = hotbar_[0]; }

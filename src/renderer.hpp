@@ -120,6 +120,7 @@ private:
     uint64_t frameIdx_ = 0;
     int shotW_ = 0, shotH_ = 0;
     int debugDraws_ = 0;
+    Mat4 cachedVP_;
     float timeOfDay_ = 0.25f;
     float timeScale_ = 1.0f / 1200.0f; // full day/night cycle in 20 minutes
 
