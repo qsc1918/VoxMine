@@ -195,8 +195,10 @@ bool Renderer::init(VkCtx& ctx, Window& win, const std::string& assetDir,
     // --- buffers ---
     createBuffer(ctx, 256, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, terrainUBO_);
+    vkMapMemory(ctx.device, terrainUBO_.m, 0, 256, 0, &terrainUBOMap_);
     createBuffer(ctx, 64, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, skyUBO_);
+    vkMapMemory(ctx.device, skyUBO_.m, 0, 64, 0, &skyUBOMap_);
     createBuffer(ctx, 1 << 20, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uiBuf_);
     vkMapMemory(ctx.device, uiBuf_.m, 0, VK_WHOLE_SIZE, 0, &uiMap_);
@@ -530,10 +532,7 @@ void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist)
     u.tilePx = (float)atlas_.tileSize;
     u.dayLight = dayLight;
     u.sunX = sunDir.x; u.sunY = sunDir.y; u.sunZ = sunDir.z;
-    void* ptr;
-    vkMapMemory(ctx.device, terrainUBO_.m, 0, sizeof(UboData), 0, &ptr);
-    memcpy(ptr, &u, sizeof(UboData));
-    vkUnmapMemory(ctx.device, terrainUBO_.m);
+    memcpy(terrainUBOMap_, &u, sizeof(UboData));
 
     struct SkyUbo { float hx, hy, hz, ha; float zx, zy, zz, za; } s;
     // day sky
@@ -547,9 +546,7 @@ void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist)
     s.hx = horizon.x; s.hy = horizon.y; s.hz = horizon.z;
     s.ha = underwater ? 1.0f : 0.0f;   // reuse horizon.a as the underwater flag
     s.zx = zenith.x; s.zy = zenith.y; s.zz = zenith.z;
-    vkMapMemory(ctx.device, skyUBO_.m, 0, sizeof(SkyUbo), 0, &ptr);
-    memcpy(ptr, &s, sizeof(SkyUbo));
-    vkUnmapMemory(ctx.device, skyUBO_.m);
+    memcpy(skyUBOMap_, &s, sizeof(SkyUbo));
 }
 
 // ---------------------------------------------------------------------------
@@ -1003,7 +1000,9 @@ void Renderer::shutdown(VkCtx& ctx) {
     if (shotBuf_) vkDestroyBuffer(ctx.device, shotBuf_, nullptr);
     if (shotMem_) vkFreeMemory(ctx.device, shotMem_, nullptr);
     uiBuf_.destroy(ctx.device);
+    if (terrainUBOMap_) vkUnmapMemory(ctx.device, terrainUBO_.m);
     terrainUBO_.destroy(ctx.device);
+    if (skyUBOMap_) vkUnmapMemory(ctx.device, skyUBO_.m);
     skyUBO_.destroy(ctx.device);
     if (pool_) vkDestroyDescriptorPool(ctx.device, pool_, nullptr);
     if (terrainDSL_) vkDestroyDescriptorSetLayout(ctx.device, terrainDSL_, nullptr);

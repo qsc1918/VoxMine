@@ -93,9 +93,11 @@ private:
     VkSampler atlasSampler_ = VK_NULL_HANDLE;
 
     Buffer2 terrainUBO_;
+    void* terrainUBOMap_ = nullptr;
     VkDescriptorSet terrainSet_ = VK_NULL_HANDLE;
 
     Buffer2 skyUBO_;
+    void* skyUBOMap_ = nullptr;
     VkDescriptorSet skySet_ = VK_NULL_HANDLE;
 
     Buffer2 uiBuf_;
