@@ -441,8 +441,6 @@ int main(int argc, char** argv) {
             renderer.gpuSync(ctx);
             world->update(player.cam.pos.x, player.cam.pos.z, renderDist);
             renderer.render(ctx, player.cam, player, in, dt, (float)renderDist, !a.noUI);
-
-            if (a.frames > 0 && ++frame >= a.frames) break;
         } else {
             // ---- menu screens ----
             if (escEdge) {
