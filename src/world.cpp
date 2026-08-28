@@ -34,9 +34,20 @@ inline int floordiv(int a, int b) {
 }
 
 std::shared_ptr<Chunk> World::chunkAt(int cx, int cz) const {
+    uint64_t key = chunkKey(cx, cz);
+    for (int i = 0; i < kChunkCacheN; i++) {
+        if (chunkCache_[i].first == key && chunkCache_[i].second) {
+            return chunkCache_[i].second;
+        }
+    }
     std::lock_guard<std::mutex> lk(mapLock_);
-    auto it = chunks_.find(chunkKey(cx, cz));
-    return it == chunks_.end() ? nullptr : it->second;
+    auto it = chunks_.find(key);
+    auto result = it == chunks_.end() ? nullptr : it->second;
+    if (result) {
+        chunkCache_[chunkCacheIdx_ % kChunkCacheN] = {key, result};
+        chunkCacheIdx_++;
+    }
+    return result;
 }
 
 void World::forEachChunk(const std::function<void(std::shared_ptr<Chunk>&, int, int)>& fn) {

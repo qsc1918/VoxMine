@@ -46,7 +46,6 @@ public:
     void setWorld(World& w);
 
     // GPU-side chunk mesh management (main thread only)
-    void uploadChunks(VkCtx& ctx);
     void destroyChunkBuffers(VkCtx& ctx, Chunk& c);
 
     // Wait until the previously-submitted frame's GPU work is finished. This MUST

@@ -295,7 +295,6 @@ int main(int argc, char** argv) {
         while (true) {
             renderer.gpuSync(ctx);
             world->update(player.cam.pos.x, player.cam.pos.z, renderDist);
-            renderer.uploadChunks(ctx);
             int ready = 0;
             world->forEachChunk([&](std::shared_ptr<Chunk>& c, int, int) { if (c->state.load() >= 2) ready++; });
             if (ready >= (2 * renderDist + 1) * (2 * renderDist + 1)) break;
@@ -441,7 +440,6 @@ int main(int argc, char** argv) {
 
             renderer.gpuSync(ctx);
             world->update(player.cam.pos.x, player.cam.pos.z, renderDist);
-            renderer.uploadChunks(ctx);
             renderer.render(ctx, player.cam, player, in, dt, (float)renderDist, !a.noUI);
 
             if (a.frames > 0 && ++frame >= a.frames) break;

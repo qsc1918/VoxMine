@@ -602,18 +602,6 @@ void Renderer::gpuSync(VkCtx& ctx) {
         vkWaitForFences(ctx.device, 1, &ctx.lastSubmitFence, VK_TRUE, UINT64_MAX);
 }
 
-void Renderer::uploadChunks(VkCtx& ctx) {
-    world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int, int) {
-        if (!c->needsUpload.exchange(false)) return;
-        std::lock_guard<std::mutex> lk(c->meshLock);
-        // Copy mesh data locally under the lock to avoid racing with worker
-        // threads that may be rebuilding the mesh concurrently.
-        ChunkMeshData local = c->mesh;
-        uploadPart(ctx, *c, true, local.opaqueVerts, local.opaqueIdx);
-        uploadPart(ctx, *c, false, local.waterVerts, local.waterIdx);
-    });
-}
-
 const uint8_t Renderer::kInvBlocks[] = {
     B_GRASS, B_STONE, B_COBBLE, B_PLANKS, B_LOG, B_DIRT, B_SAND, B_GRAVEL,
     B_GLASS, B_LEAVES, B_SNOW, B_COAL, B_IRON, B_GOLD, B_DIAMOND, B_REDSTONE,
@@ -686,6 +674,20 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
     rp.renderArea = {{0, 0}, ctx.extent};
     rp.clearValueCount = 2;
     rp.pClearValues = clears;
+
+    // Upload pending chunk meshes BEFORE render pass (uploadPart does
+    // vkCreateBuffer/vkAllocateMemory which must not run during render pass).
+    if (world_) {
+        world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int, int) {
+            if (c->needsUpload.exchange(false)) {
+                std::lock_guard<std::mutex> lk(c->meshLock);
+                ChunkMeshData local = c->mesh;
+                uploadPart(ctx, *c, true, local.opaqueVerts, local.opaqueIdx);
+                uploadPart(ctx, *c, false, local.waterVerts, local.waterIdx);
+            }
+        });
+    }
+
     vkCmdBeginRenderPass(cb, &rp, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport vp = {0, 0, (float)ctx.extent.width, (float)ctx.extent.height, 0, 1};

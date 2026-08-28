@@ -160,6 +160,11 @@ private:
     std::unordered_map<uint64_t, std::shared_ptr<Chunk>> chunks_;
     mutable std::shared_mutex blocksMutex_;
 
+    // Small direct-mapped cache to avoid mapLock_ for repeated chunkAt() lookups.
+    static constexpr int kChunkCacheN = 8;
+    mutable std::array<std::pair<uint64_t, std::shared_ptr<Chunk>>, kChunkCacheN> chunkCache_{};
+    mutable uint32_t chunkCacheIdx_ = 0;
+
     std::priority_queue<WorldTask, std::vector<WorldTask>, std::function<bool(const WorldTask&, const WorldTask&)>> queue_;
     std::mutex queueLock_;
     std::condition_variable queueCV_;
