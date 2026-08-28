@@ -172,6 +172,7 @@ int main(int argc, char** argv) {
         player = Player();
         player.cam.yaw = a.yaw;
         player.cam.pitch = a.pitch;
+        player.cam.markDirty();
 
         if (!loadFrom.empty()) {
             // Load saved chunks from disk (binary format: all generated chunks).
@@ -205,6 +206,7 @@ int main(int argc, char** argv) {
             // not look down at a default angle or fall from mid-air.
             player.cam.yaw = savedYaw;
             player.cam.pitch = savedPitch;
+            player.cam.markDirty();
             player.flying = savedFlying;
         } else {
             // Fresh world: generate chunks around spawn.
@@ -319,7 +321,7 @@ int main(int argc, char** argv) {
             for (int i = 0; i < totalFrames && win.pump(); i++) {
                 if (i == (a.drive ? 380 : 20)) renderer.requestScreenshot(a.screenshot);
                 Input& in = win.input();
-                if (a.drive) { in.keys['W'] = true; player.cam.pitch = -0.1f; }
+                if (a.drive) { in.keys['W'] = true; player.cam.pitch = -0.1f; player.cam.markDirty(); }
                 player.update(in, *world, 1.0f / 60.0f);
                 renderer.render(ctx, player.cam, player, in, 1.0f / 60.0f, (float)renderDist, !a.noUI);
                 win.endFrame();
@@ -401,7 +403,7 @@ int main(int argc, char** argv) {
                 if (o) { win.setCapture(false); ShowCursor(TRUE); }
                 else { win.setCapture(true); ShowCursor(FALSE); }
             }
-            if (a.drive) { in.keys['W'] = true; player.cam.pitch = -0.1f; }
+            if (a.drive) { in.keys['W'] = true; player.cam.pitch = -0.1f; player.cam.markDirty(); }
 
             if (renderer.inventoryOpen()) {
                 float ccx, ccy; win.cursorPos(ccx, ccy); renderer.setCursor(ccx, ccy);

@@ -1,21 +1,21 @@
 #include "camera.hpp"
 #include <cmath>
 
-Vec3 Camera::forward() const {
+void Camera::updateBasis() const {
+    if (!dirty_) return;
+    dirty_ = false;
     float cp = std::cos(pitch);
-    return Vec3(std::sin(yaw) * cp, std::sin(pitch), std::cos(yaw) * cp);
+    fwd_ = Vec3(std::sin(yaw) * cp, std::sin(pitch), std::cos(yaw) * cp);
+    Vec3 up0(0, 1, 0);
+    rt_ = normalize(cross(fwd_, up0));
+    up_ = normalize(cross(rt_, fwd_));
 }
 
-Vec3 Camera::right() const {
-    Vec3 f = forward();
-    Vec3 up(0, 1, 0);
-    return normalize(cross(f, up));
-}
-
-Vec3 Camera::up() const {
-    return normalize(cross(right(), forward()));
-}
+Vec3 Camera::forward() const { updateBasis(); return fwd_; }
+Vec3 Camera::right() const { updateBasis(); return rt_; }
+Vec3 Camera::up() const { updateBasis(); return up_; }
 
 Mat4 Camera::view() const {
-    return Mat4::lookAt(pos, pos + forward(), up());
+    updateBasis();
+    return Mat4::lookAt(pos, pos + fwd_, up_);
 }
