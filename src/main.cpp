@@ -524,10 +524,11 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (frame % 60 == 0) {
+        if (frame % 10 == 0) {
             const wchar_t* mode = (gs == GS::Play) ? L"Game" : L"Menu";
             wchar_t title[128];
-            swprintf(title, 128, L"VoxMine - %s", mode);
+            int ifps = (int)(renderer.fps() + 0.5f);
+            swprintf(title, 128, L"VoxMine - %s - FPS: %d", mode, ifps);
             SetWindowTextW((HWND)win.hwnd(), title);
         }
         win.endFrame();
