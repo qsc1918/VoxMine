@@ -566,10 +566,13 @@ void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist,
 // ---------------------------------------------------------------------------
 // chunk GPU upload
 // ---------------------------------------------------------------------------
-void Renderer::retireBuffer(VkBuffer b, VkDeviceMemory m, bool /*opaque*/, Chunk& /*c*/) {
+void Renderer::retireBuffer(VkBuffer b, VkDeviceMemory m, bool opaque, Chunk& c) {
     if (!b && !m) return;
-    retired_.push_back({b, m, frameIdx_});
+    VkDeviceSize sz = opaque ? (VkDeviceSize)c.opaqueAlloc : (VkDeviceSize)c.waterAlloc;
+    retired_.push_back({b, m, frameIdx_, sz});
 }
+
+static constexpr size_t kMaxPooledBuffers = 512;
 
 void Renderer::uploadPart(VkCtx& ctx, Chunk& c, bool opaque,
                           const std::vector<TerrainVertex>& verts,
@@ -598,8 +601,20 @@ void Renderer::uploadPart(VkCtx& ctx, Chunk& c, bool opaque,
     // frame onward; the old one is freed once it is safe (multi-frame in flight).
     retireBuffer(oldBuf, oldMem, opaque, c);
     Buffer2 nb;
-    if (!createBuffer(ctx, needed, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, nb))
+    // Reuse a freed buffer large enough, otherwise allocate a new one.
+    bool reused = false;
+    for (size_t i = 0; i < freePool_.size(); i++) {
+        if (freePool_[i].size >= needed) {
+            nb.b = freePool_[i].b;
+            nb.m = freePool_[i].m;
+            freePool_[i] = freePool_.back();
+            freePool_.pop_back();
+            reused = true;
+            break;
+        }
+    }
+    if (!reused && !createBuffer(ctx, needed, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, nb))
         return;
     void* ptr;
     if (vkMapMemory(ctx.device, nb.m, 0, needed, 0, &ptr) != VK_SUCCESS) return;
@@ -624,8 +639,14 @@ void Renderer::flushRetired(VkCtx& ctx, uint64_t submittedFrames) {
     size_t i = 0;
     while (i < retired_.size()) {
         if (retired_[i].frame < floor) {
-            if (retired_[i].b) vkDestroyBuffer(ctx.device, retired_[i].b, nullptr);
-            if (retired_[i].m) vkFreeMemory(ctx.device, retired_[i].m, nullptr);
+            // Recycle into the pool for reuse instead of freeing, so streaming does
+            // not churn vkCreateBuffer/vkAllocateMemory. Cap the pool to bound memory.
+            if (freePool_.size() < kMaxPooledBuffers) {
+                freePool_.push_back(retired_[i]);
+            } else {
+                if (retired_[i].b) vkDestroyBuffer(ctx.device, retired_[i].b, nullptr);
+                if (retired_[i].m) vkFreeMemory(ctx.device, retired_[i].m, nullptr);
+            }
             retired_[i] = retired_.back();
             retired_.pop_back();
         } else {
@@ -1076,6 +1097,11 @@ void Renderer::shutdown(VkCtx& ctx) {
         if (r.m) vkFreeMemory(ctx.device, r.m, nullptr);
     }
     retired_.clear();
+    for (auto& r : freePool_) {
+        if (r.b) vkDestroyBuffer(ctx.device, r.b, nullptr);
+        if (r.m) vkFreeMemory(ctx.device, r.m, nullptr);
+    }
+    freePool_.clear();
     if (pool_) vkDestroyDescriptorPool(ctx.device, pool_, nullptr);
     if (terrainDSL_) vkDestroyDescriptorSetLayout(ctx.device, terrainDSL_, nullptr);
     if (uiDSL_) vkDestroyDescriptorSetLayout(ctx.device, uiDSL_, nullptr);

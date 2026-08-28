@@ -111,8 +111,12 @@ private:
 
     // Chunk GPU buffers that are no longer referenced but cannot be freed while a
     // frame in flight may still read them. Freed once enough frames have elapsed.
-    struct RetiredBuf { VkBuffer b; VkDeviceMemory m; uint64_t frame; };
+    struct RetiredBuf { VkBuffer b; VkDeviceMemory m; uint64_t frame; VkDeviceSize size; };
     std::vector<RetiredBuf> retired_;
+    // Once a retired buffer is safe (its frames completed) it is moved here and
+    // reused for future chunk uploads, avoiding vkCreateBuffer/vkAllocateMemory
+    // churn while streaming. Bounded to avoid unbounded memory growth.
+    std::vector<RetiredBuf> freePool_;
 
     int curFrame_ = 0;   // frame slot (0..MAX_FRAMES_IN_FLIGHT-1) being recorded now
 
