@@ -294,7 +294,12 @@ void Renderer::setWorld(World& w) {
 
 void Renderer::createAtlasTexture(VkCtx& ctx) {
     int w = atlas_.width, h = atlas_.height;
+    // Full mip chain (log2 of the largest dimension + 1) so distant terrain samples
+    // a coherent low-res level instead of thrashing the 128x128 atlas. This is the
+    // single biggest fix for the fill-rate/bandwidth drop on far terrain.
     uint32_t mips = 1;
+    while ((1u << mips) < (uint32_t)std::max(w, h)) mips++;
+    mips++;
     VkImageCreateInfo ici = {};
     ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ici.imageType = VK_IMAGE_TYPE_2D;
@@ -384,7 +389,8 @@ void Renderer::createAtlasTexture(VkCtx& ctx) {
         vkCmdBlitImage(cb, atlasImage_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                        atlasImage_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
     }
-    // level 0 was left in TRANSFER_SRC (blit source); move it back to TRANSFER_DST
+    // Levels 0..mips-2 were left in TRANSFER_SRC (each served as a blit source);
+    // return them to TRANSFER_DST so the final chain transition below is valid.
     {
         VkImageMemoryBarrier br = {};
         br.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -395,7 +401,7 @@ void Renderer::createAtlasTexture(VkCtx& ctx) {
         br.image = atlasImage_;
         br.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         br.subresourceRange.baseMipLevel = 0;
-        br.subresourceRange.levelCount = 1;
+        br.subresourceRange.levelCount = mips - 1;
         br.subresourceRange.layerCount = 1;
         vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                              0, 0, nullptr, 0, nullptr, 1, &br);
@@ -435,14 +441,15 @@ void Renderer::createAtlasTexture(VkCtx& ctx) {
 
     VkSamplerCreateInfo sm = {};
     sm.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sm.magFilter = VK_FILTER_NEAREST;
-    sm.minFilter = VK_FILTER_NEAREST;
-    sm.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sm.magFilter = VK_FILTER_NEAREST;            // crisp pixelated look up close
+    sm.minFilter = VK_FILTER_NEAREST;            // nearest within the chosen mip level
+    sm.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST; // crisp (no mip blending) but cached
     sm.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sm.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sm.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sm.anisotropyEnable = VK_FALSE;
-    sm.maxLod = (float)mips;
+    sm.anisotropyEnable = VK_FALSE;              // no blur, minimal bandwidth
+    sm.minLod = 0.0f;
+    sm.maxLod = (float)(mips - 1);
     vkCreateSampler(ctx.device, &sm, nullptr, &atlasSampler_);
 }
 
