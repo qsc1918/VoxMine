@@ -477,18 +477,16 @@ int Menu::renderMenu(VkCtx& ctx, Menuscreen screen, const MenuData& data,
     ensureDIB(ctx.extent.width, ctx.extent.height);
     renderToDIB(screen, data, cx, cy);
 
-    // upload DIB (BGRA) -> staging (RGBA)
+    // upload DIB (BGRA) -> staging (RGBA), swap R and B channels
     {
         void* p;
         if (vkMapMemory(ctx.device, stagingMem_, 0, VK_WHOLE_SIZE, 0, &p) == VK_SUCCESS) {
-            uint8_t* dst = (uint8_t*)p;
-            uint8_t* src = (uint8_t*)dibBits_;
+            uint32_t* dst = (uint32_t*)p;
+            uint32_t* src = (uint32_t*)dibBits_;
             size_t n = (size_t)diw_ * dih_;
             for (size_t i = 0; i < n; i++) {
-                dst[i * 4 + 0] = src[i * 4 + 2];
-                dst[i * 4 + 1] = src[i * 4 + 1];
-                dst[i * 4 + 2] = src[i * 4 + 0];
-                dst[i * 4 + 3] = src[i * 4 + 3];
+                uint32_t px = src[i];
+                dst[i] = (px & 0xFF00FF00) | ((px & 0x00FF0000) >> 16) | ((px & 0x000000FF) << 16);
             }
             vkUnmapMemory(ctx.device, stagingMem_);
         }
