@@ -233,6 +233,25 @@ void World::meshChunk(int cx, int cz, const std::shared_ptr<Chunk>& c) {
     MeshView view;
     view.blocks.fill(B_AIR);
 
+    // Collect all neighbor chunks under a single mapLock_ acquisition.
+    std::shared_ptr<Chunk> neighbors[4]; // +x, -x, +z, -z
+    std::shared_ptr<Chunk> corners[4];   // ++, -+, +-, --
+    {
+        std::lock_guard<std::mutex> mlk(mapLock_);
+        auto get = [&](int ncx, int ncz) -> std::shared_ptr<Chunk> {
+            auto it = chunks_.find(chunkKey(ncx, ncz));
+            return (it != chunks_.end() && it->second->state.load() >= 1) ? it->second : nullptr;
+        };
+        neighbors[0] = get(cx + 1, cz);
+        neighbors[1] = get(cx - 1, cz);
+        neighbors[2] = get(cx, cz + 1);
+        neighbors[3] = get(cx, cz - 1);
+        corners[0] = get(cx + 1, cz + 1);
+        corners[1] = get(cx - 1, cz + 1);
+        corners[2] = get(cx + 1, cz - 1);
+        corners[3] = get(cx - 1, cz - 1);
+    }
+
     {
         std::shared_lock<std::shared_mutex> lk(blocksMutex_);
 
@@ -243,65 +262,45 @@ void World::meshChunk(int cx, int cz, const std::shared_ptr<Chunk>& c) {
                     view.set(x, y, z, c->blocks[chunkIndex(x, y, z)]);
 
         // +x neighbor
-        {
-            std::lock_guard<std::mutex> mlk(mapLock_);
-            auto it = chunks_.find(chunkKey(cx + 1, cz));
-            if (it != chunks_.end() && it->second->state.load() >= 1) {
-                auto& nc = it->second;
-                for (int y = 0; y < WORLD_HEIGHT; y++)
-                    for (int z = 0; z < 16; z++)
-                        view.set(16, y, z, nc->blocks[chunkIndex(0, y, z)]);
-            }
+        if (neighbors[0]) {
+            auto& nc = neighbors[0];
+            for (int y = 0; y < WORLD_HEIGHT; y++)
+                for (int z = 0; z < 16; z++)
+                    view.set(16, y, z, nc->blocks[chunkIndex(0, y, z)]);
         }
         // -x neighbor
-        {
-            std::lock_guard<std::mutex> mlk(mapLock_);
-            auto it = chunks_.find(chunkKey(cx - 1, cz));
-            if (it != chunks_.end() && it->second->state.load() >= 1) {
-                auto& nc = it->second;
-                for (int y = 0; y < WORLD_HEIGHT; y++)
-                    for (int z = 0; z < 16; z++)
-                        view.set(-1, y, z, nc->blocks[chunkIndex(15, y, z)]);
-            }
+        if (neighbors[1]) {
+            auto& nc = neighbors[1];
+            for (int y = 0; y < WORLD_HEIGHT; y++)
+                for (int z = 0; z < 16; z++)
+                    view.set(-1, y, z, nc->blocks[chunkIndex(15, y, z)]);
         }
         // +z neighbor
-        {
-            std::lock_guard<std::mutex> mlk(mapLock_);
-            auto it = chunks_.find(chunkKey(cx, cz + 1));
-            if (it != chunks_.end() && it->second->state.load() >= 1) {
-                auto& nc = it->second;
-                for (int y = 0; y < WORLD_HEIGHT; y++)
-                    for (int x = 0; x < 16; x++)
-                        view.set(x, y, 16, nc->blocks[chunkIndex(x, y, 0)]);
-            }
+        if (neighbors[2]) {
+            auto& nc = neighbors[2];
+            for (int y = 0; y < WORLD_HEIGHT; y++)
+                for (int x = 0; x < 16; x++)
+                    view.set(x, y, 16, nc->blocks[chunkIndex(x, y, 0)]);
         }
         // -z neighbor
-        {
-            std::lock_guard<std::mutex> mlk(mapLock_);
-            auto it = chunks_.find(chunkKey(cx, cz - 1));
-            if (it != chunks_.end() && it->second->state.load() >= 1) {
-                auto& nc = it->second;
-                for (int y = 0; y < WORLD_HEIGHT; y++)
-                    for (int x = 0; x < 16; x++)
-                        view.set(x, y, -1, nc->blocks[chunkIndex(x, y, 15)]);
-            }
+        if (neighbors[3]) {
+            auto& nc = neighbors[3];
+            for (int y = 0; y < WORLD_HEIGHT; y++)
+                for (int x = 0; x < 16; x++)
+                    view.set(x, y, -1, nc->blocks[chunkIndex(x, y, 15)]);
         }
         // corners
-        auto copyCorner = [&](int ncx, int ncz, int vx, int vz) {
-            std::lock_guard<std::mutex> mlk(mapLock_);
-            auto it = chunks_.find(chunkKey(ncx, ncz));
-            if (it == chunks_.end()) return;
-            auto& nc = it->second;
-            if (nc->state.load() < 1) return;
+        auto copyCorner = [&](const std::shared_ptr<Chunk>& nc, int vx, int vz) {
+            if (!nc) return;
             int nx = vx == 16 ? 0 : 15;
             int nz = vz == 16 ? 0 : 15;
             for (int y = 0; y < WORLD_HEIGHT; y++)
                 view.set(vx, y, vz, nc->blocks[chunkIndex(nx, y, nz)]);
         };
-        copyCorner(cx + 1, cz + 1, 16, 16);
-        copyCorner(cx - 1, cz + 1, -1, 16);
-        copyCorner(cx + 1, cz - 1, 16, -1);
-        copyCorner(cx - 1, cz - 1, -1, -1);
+        copyCorner(corners[0], 16, 16);
+        copyCorner(corners[1], -1, 16);
+        copyCorner(corners[2], 16, -1);
+        copyCorner(corners[3], -1, -1);
     }
 
     ChunkMeshData mesh = buildChunkMesh(view);
