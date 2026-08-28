@@ -5,7 +5,6 @@
 #include "window.hpp"
 #include "world.hpp"
 #include <string>
-#include <windows.h>
 
 struct Camera;
 struct Player;
@@ -60,9 +59,6 @@ public:
     void setInventoryOpen(bool open);
     bool inventoryOpen() const { return invOpen_; }
     void setCursor(float x, float y) { cursorX_ = x; cursorY_ = y; }
-
-    // F3 FPS overlay
-    bool fpsOverlay() const { return fpsOverlay_; }
 
 private:
     bool createPipelines(VkCtx& ctx);
@@ -137,21 +133,4 @@ private:
     static const uint8_t kInvBlocks[];
     static const int kInvCount;
     static const int kInvCols = 8;
-
-    // F3 FPS overlay
-    bool fpsOverlay_ = false;
-    bool fpsOverlayPrev_ = false;
-    VkImage ovImage_ = VK_NULL_HANDLE;
-    VkDeviceMemory ovMem_ = VK_NULL_HANDLE;
-    VkImageView ovView_ = VK_NULL_HANDLE;
-    VkBuffer ovStage_ = VK_NULL_HANDLE;
-    VkDeviceMemory ovStageMem_ = VK_NULL_HANDLE;
-    VkDescriptorSet ovSet_ = VK_NULL_HANDLE;
-    int ovW_ = 256, ovH_ = 64;
-    void* ovDibBits_ = nullptr;
-    HDC ovDibDC_ = nullptr;
-    HBITMAP ovDibBmp_ = nullptr;
-    HFONT ovFont_ = nullptr;
-    int ovLastFps_ = -1;
-    void drawFpsOverlay(VkCtx& ctx);
 };

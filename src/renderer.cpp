@@ -282,86 +282,6 @@ bool Renderer::init(VkCtx& ctx, Window& win, const std::string& assetDir,
 
     // screenshot buffer
     shotBufReady_ = false;
-
-    // --- F3 FPS overlay ---
-    // Create overlay texture
-    {
-        VkImageCreateInfo ici = {};
-        ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        ici.imageType = VK_IMAGE_TYPE_2D;
-        ici.format = VK_FORMAT_B8G8R8A8_UNORM;
-        ici.extent = {(uint32_t)ovW_, (uint32_t)ovH_, 1};
-        ici.mipLevels = 1;
-        ici.arrayLayers = 1;
-        ici.samples = VK_SAMPLE_COUNT_1_BIT;
-        ici.tiling = VK_IMAGE_TILING_OPTIMAL;
-        ici.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        vkCreateImage(ctx.device, &ici, nullptr, &ovImage_);
-        VkMemoryRequirements mr;
-        vkGetImageMemoryRequirements(ctx.device, ovImage_, &mr);
-        VkMemoryAllocateInfo ai = {};
-        ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        ai.allocationSize = mr.size;
-        ai.memoryTypeIndex = ctx.findMemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        vkAllocateMemory(ctx.device, &ai, nullptr, &ovMem_);
-        vkBindImageMemory(ctx.device, ovImage_, ovMem_, 0);
-        VkImageViewCreateInfo vci = {};
-        vci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        vci.image = ovImage_;
-        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        vci.format = VK_FORMAT_B8G8R8A8_UNORM;
-        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCreateImageView(ctx.device, &vci, nullptr, &ovView_);
-    }
-    // Staging buffer
-    {
-        Buffer2 sb;
-        createBuffer(ctx, (VkDeviceSize)ovW_ * ovH_ * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sb);
-        ovStage_ = sb.b;
-        ovStageMem_ = sb.m;
-    }
-    // Descriptor set for overlay
-    {
-        VkDescriptorSetAllocateInfo aci = {};
-        aci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        aci.descriptorPool = pool_;
-        aci.descriptorSetCount = 1;
-        aci.pSetLayouts = &uiDSL_;
-        vkAllocateDescriptorSets(ctx.device, &aci, &ovSet_);
-        VkDescriptorImageInfo di = {atlasSampler_, ovView_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkWriteDescriptorSet wr = {};
-        wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        wr.dstSet = ovSet_;
-        wr.dstBinding = 0;
-        wr.descriptorCount = 1;
-        wr.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        wr.pImageInfo = &di;
-        vkUpdateDescriptorSets(ctx.device, 1, &wr, 0, nullptr);
-    }
-    // GDI DIB for rendering FPS text
-    {
-        ovDibDC_ = CreateCompatibleDC(nullptr);
-        BITMAPINFO bmi = {};
-        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = ovW_;
-        bmi.bmiHeader.biHeight = -ovH_;
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = BI_RGB;
-        void* raw = nullptr;
-        ovDibBmp_ = CreateDIBSection(ovDibDC_, &bmi, DIB_RGB_COLORS, &raw, nullptr, 0);
-        ovDibBits_ = raw;
-        SelectObject(ovDibDC_, ovDibBmp_);
-        SetBkMode(ovDibDC_, TRANSPARENT);
-        SetTextColor(ovDibDC_, RGB(255, 255, 255));
-        ovFont_ = CreateFontA(-16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                              DEFAULT_PITCH | FF_DONTCARE, "Consolas");
-        SelectObject(ovDibDC_, ovFont_);
-    }
-
     return true;
 }
 
@@ -725,9 +645,6 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
 
     if (pendingShot_.empty()) shotTaken_ = false;
 
-    // F3 toggle for FPS overlay (edge-triggered)
-    if (in.pressed[VK_F3]) fpsOverlay_ = !fpsOverlay_;
-
     uint32_t imageIndex;
     VkCtx::Frame& f = ctx.frames[frameIdx_ % ctx.frames.size()];
     // Ensure the shared command buffer is free BEFORE acquiring (acquireNext resets
@@ -790,9 +707,6 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
     }
 
     vkCmdEndRenderPass(cb);
-
-    // F3 FPS overlay (drawn outside render pass, needs image layout transitions)
-    drawFpsOverlay(ctx);
 
     // screenshot copy (after render pass, image is in PRESENT_SRC layout)
     bool takeShot = !pendingShot_.empty() && !shotTaken_;
@@ -1085,84 +999,6 @@ void Renderer::drawUIOverlay(VkCtx& ctx, const Camera& cam, Input& in) {
     vkCmdDraw(ctx.cmd, (uint32_t)quads.size(), 1, 0, 0);
 }
 
-void Renderer::drawFpsOverlay(VkCtx& ctx) {
-    if (!fpsOverlay_) return;
-
-    // Only re-render the DIB when FPS value changes
-    int ifps = (int)(fps_ + 0.5f);
-    if (ifps != ovLastFps_) {
-        ovLastFps_ = ifps;
-        // Clear DIB to transparent black
-        memset(ovDibBits_, 0, (size_t)ovW_ * ovH_ * 4);
-        char buf[32];
-        snprintf(buf, sizeof(buf), "FPS: %d", ifps);
-        SetBkMode(ovDibDC_, TRANSPARENT);
-        SetTextColor(ovDibDC_, RGB(255, 255, 255));
-        TextOutA(ovDibDC_, 4, 4, buf, (int)strlen(buf));
-    }
-
-    // Upload DIB (BGRA) to staging, then to overlay texture
-    {
-        void* p;
-        if (vkMapMemory(ctx.device, ovStageMem_, 0, VK_WHOLE_SIZE, 0, &p) == VK_SUCCESS) {
-            uint8_t* dst = (uint8_t*)p;
-            uint8_t* src = (uint8_t*)ovDibBits_;
-            size_t n = (size_t)ovW_ * ovH_;
-            for (size_t i = 0; i < n; i++) {
-                dst[i * 4 + 0] = src[i * 4 + 2]; // R <- B
-                dst[i * 4 + 1] = src[i * 4 + 1]; // G
-                dst[i * 4 + 2] = src[i * 4 + 0]; // B <- R
-                dst[i * 4 + 3] = src[i * 4 + 3]; // A
-            }
-            vkUnmapMemory(ctx.device, ovStageMem_);
-        }
-    }
-
-    VkCommandBuffer cb = ctx.cmd;
-    // Transition overlay texture to TRANSFER_DST
-    VkImageMemoryBarrier bar = {};
-    bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    bar.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    bar.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    bar.image = ovImage_;
-    bar.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0, 0, nullptr, 0, nullptr, 1, &bar);
-    // Copy staging -> overlay texture
-    VkBufferImageCopy bic = {};
-    bic.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    bic.imageExtent = {(uint32_t)ovW_, (uint32_t)ovH_, 1};
-    vkCmdCopyBufferToImage(cb, ovStage_, ovImage_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bic);
-    // Transition to SHADER_READ_ONLY
-    bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         0, 0, nullptr, 0, nullptr, 1, &bar);
-
-    // Draw overlay quad (top-left corner, small)
-    float quadW = 200.0f, quadH = 30.0f;
-    float x0 = 8.0f, y0 = 8.0f;
-    auto ndcX = [&](float px) { return px / (float)windowW_ * 2.0f - 1.0f; };
-    auto ndcY = [&](float py) { return py / (float)windowH_ * 2.0f - 1.0f; };
-    UIVertex q[6] = {
-        {ndcX(x0), ndcY(y0), 0, 0, 1, 1, 1, 0.8f},
-        {ndcX(x0 + quadW), ndcY(y0), 1, 0, 1, 1, 1, 0.8f},
-        {ndcX(x0 + quadW), ndcY(y0 + quadH), 1, 1, 1, 1, 1, 0.8f},
-        {ndcX(x0), ndcY(y0), 0, 0, 1, 1, 1, 0.8f},
-        {ndcX(x0 + quadW), ndcY(y0 + quadH), 1, 1, 1, 1, 1, 0.8f},
-        {ndcX(x0), ndcY(y0 + quadH), 0, 1, 1, 1, 1, 0.8f},
-    };
-    memcpy(uiMap_, q, sizeof(q));
-    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipe_);
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, uiLayout_, 0, 1, &ovSet_, 0, nullptr);
-    VkBuffer ub = uiBuf_.b;
-    VkDeviceSize off = 0;
-    vkCmdBindVertexBuffers(cb, 0, 1, &ub, &off);
-    vkCmdDraw(cb, 6, 1, 0, 0);
-}
-
 void Renderer::shutdown(VkCtx& ctx) {
     if (shotBuf_) vkDestroyBuffer(ctx.device, shotBuf_, nullptr);
     if (shotMem_) vkFreeMemory(ctx.device, shotMem_, nullptr);
@@ -1184,15 +1020,6 @@ void Renderer::shutdown(VkCtx& ctx) {
     if (atlasSampler_) vkDestroySampler(ctx.device, atlasSampler_, nullptr);
     if (atlasImage_) vkDestroyImage(ctx.device, atlasImage_, nullptr);
     if (atlasMem_) vkFreeMemory(ctx.device, atlasMem_, nullptr);
-    // F3 overlay cleanup
-    if (ovImage_) vkDestroyImage(ctx.device, ovImage_, nullptr);
-    if (ovMem_) vkFreeMemory(ctx.device, ovMem_, nullptr);
-    if (ovView_) vkDestroyImageView(ctx.device, ovView_, nullptr);
-    if (ovStage_) vkDestroyBuffer(ctx.device, ovStage_, nullptr);
-    if (ovStageMem_) vkFreeMemory(ctx.device, ovStageMem_, nullptr);
-    if (ovDibBmp_) DeleteObject(ovDibBmp_);
-    if (ovDibDC_) DeleteDC(ovDibDC_);
-    if (ovFont_) DeleteObject(ovFont_);
 }
 
 
