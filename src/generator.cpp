@@ -36,8 +36,9 @@ SurfaceInfo surfaceFor(const Noise& temp, const Noise& moist, int wx, int wz, in
     SurfaceInfo si;
     si.height = height;
     si.ocean = height < SEA_LEVEL;
-    si.desert = temp.value2(wx * 0.008f + 100.0f, wz * 0.008f + 100.0f) > 0.62f;
-    si.cold = temp.value2(wx * 0.008f + 100.0f, wz * 0.008f + 100.0f) < 0.22f;
+    float tv = temp.value2(wx * 0.008f + 100.0f, wz * 0.008f + 100.0f);
+    si.desert = tv > 0.62f;
+    si.cold = tv < 0.22f;
     return si;
 }
 
