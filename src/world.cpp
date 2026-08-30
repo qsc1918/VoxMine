@@ -385,7 +385,10 @@ void World::update(float px, float pz, int renderDist) {
         }
     }
 
-    // unload far chunks (throttled — see Step 2)
+    // unload far chunks — throttle to once every 15 frames to avoid iterating
+    // the entire chunk map + acquiring queueLock per candidate every frame.
+    if (++unloadCounter_ >= 15) {
+    unloadCounter_ = 0;
     std::vector<uint64_t> toErase;
     {
         std::lock_guard<std::mutex> lk(mapLock_);
@@ -412,4 +415,5 @@ void World::update(float px, float pz, int renderDist) {
             }
         }
     }
+    } // unload throttle
 }

@@ -179,6 +179,7 @@ private:
 
     float lastPx_ = 0.0f, lastPz_ = 0.0f;
     int lastCCX_ = INT_MIN, lastCCZ_ = INT_MIN, lastRenderDist_ = -1;
+    uint32_t unloadCounter_ = 0;
 
     std::vector<std::array<int, 4>> editLog_;
 };
