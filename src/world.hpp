@@ -65,6 +65,8 @@ struct Chunk {
     uint64_t waterAlloc = 0;
     uint64_t opaqueVertBytes = 0; // vertex data byte size (index buffer offset)
     uint64_t waterVertBytes = 0;
+    void*    opaqueMap = nullptr; // persistent vkMapMemory pointer (HOST_COHERENT)
+    void*    waterMap = nullptr;
 };
 
 inline uint64_t chunkKey(int cx, int cz) {

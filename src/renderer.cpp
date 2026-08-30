@@ -570,7 +570,9 @@ void Renderer::updateTerrainUBO(VkCtx& ctx, const Camera& cam, float renderDist,
 void Renderer::retireBuffer(VkBuffer b, VkDeviceMemory m, bool opaque, Chunk& c) {
     if (!b && !m) return;
     VkDeviceSize sz = opaque ? (VkDeviceSize)c.opaqueAlloc : (VkDeviceSize)c.waterAlloc;
-    retired_.push_back({b, m, frameIdx_, sz});
+    void* mp = opaque ? c.opaqueMap : c.waterMap;
+    retired_.push_back({b, m, frameIdx_, sz, mp});
+    if (opaque) c.opaqueMap = nullptr; else c.waterMap = nullptr;
 }
 
 static constexpr size_t kMaxPooledBuffers = 512;
@@ -602,32 +604,36 @@ void Renderer::uploadPart(VkCtx& ctx, Chunk& c, bool opaque,
     // frame onward; the old one is freed once it is safe (multi-frame in flight).
     retireBuffer(oldBuf, oldMem, opaque, c);
     Buffer2 nb;
+    void* ptr = nullptr;
     // Reuse a freed buffer large enough, otherwise allocate a new one.
     bool reused = false;
     for (size_t i = 0; i < freePool_.size(); i++) {
         if (freePool_[i].size >= needed) {
             nb.b = freePool_[i].b;
             nb.m = freePool_[i].m;
+            ptr = freePool_[i].mapPtr;  // already persistently mapped
             freePool_[i] = freePool_.back();
             freePool_.pop_back();
             reused = true;
             break;
         }
     }
-    if (!reused && !createBuffer(ctx, needed, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, nb))
-        return;
-    void* ptr;
-    if (vkMapMemory(ctx.device, nb.m, 0, needed, 0, &ptr) != VK_SUCCESS) return;
+    if (!reused) {
+        if (!createBuffer(ctx, needed, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, nb))
+            return;
+        // Map once with VK_WHOLE_SIZE — never unmap until buffer is destroyed.
+        if (vkMapMemory(ctx.device, nb.m, 0, VK_WHOLE_SIZE, 0, &ptr) != VK_SUCCESS) return;
+    }
     size_t vb = verts.size() * sizeof(TerrainVertex);
     memcpy(ptr, verts.data(), vb);
     memcpy((uint8_t*)ptr + vb, idx.data(), idx.size() * sizeof(uint32_t));
-    vkUnmapMemory(ctx.device, nb.m);
     buf = (uint64_t)(uintptr_t)nb.b;
     mem = (uint64_t)(uintptr_t)nb.m;
     alloc = (uint64_t)needed;
     count = (uint32_t)idx.size();
     vertBytes = (uint64_t)vb;
+    if (opaque) c.opaqueMap = ptr; else c.waterMap = ptr;
 }
 
 void Renderer::flushRetired(VkCtx& ctx, uint64_t submittedFrames) {
@@ -1097,11 +1103,13 @@ void Renderer::shutdown(VkCtx& ctx) {
     }
     // All GPU work is done (device is idle); free any deferred chunk buffers.
     for (auto& r : retired_) {
+        if (r.mapPtr) vkUnmapMemory(ctx.device, r.m);
         if (r.b) vkDestroyBuffer(ctx.device, r.b, nullptr);
         if (r.m) vkFreeMemory(ctx.device, r.m, nullptr);
     }
     retired_.clear();
     for (auto& r : freePool_) {
+        if (r.mapPtr) vkUnmapMemory(ctx.device, r.m);
         if (r.b) vkDestroyBuffer(ctx.device, r.b, nullptr);
         if (r.m) vkFreeMemory(ctx.device, r.m, nullptr);
     }

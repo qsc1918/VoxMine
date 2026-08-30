@@ -111,7 +111,7 @@ private:
 
     // Chunk GPU buffers that are no longer referenced but cannot be freed while a
     // frame in flight may still read them. Freed once enough frames have elapsed.
-    struct RetiredBuf { VkBuffer b; VkDeviceMemory m; uint64_t frame; VkDeviceSize size; };
+    struct RetiredBuf { VkBuffer b; VkDeviceMemory m; uint64_t frame; VkDeviceSize size; void* mapPtr; };
     std::vector<RetiredBuf> retired_;
     // Once a retired buffer is safe (its frames completed) it is moved here and
     // reused for future chunk uploads, avoiding vkCreateBuffer/vkAllocateMemory
