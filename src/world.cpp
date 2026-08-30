@@ -59,6 +59,17 @@ void World::forEachChunk(const std::function<void(std::shared_ptr<Chunk>&, int, 
     }
 }
 
+void World::snapshotChunks(std::vector<ChunkInfo>& out) {
+    std::lock_guard<std::mutex> lk(mapLock_);
+    out.clear();
+    out.reserve(chunks_.size());
+    for (auto& kv : chunks_) {
+        int cx = (int)(int32_t)(kv.first >> 32);
+        int cz = (int)(int32_t)kv.first;
+        out.push_back({kv.second.get(), cx, cz});
+    }
+}
+
 uint8_t World::getBlock(int x, int y, int z) const {
     if (y < 0 || y >= WORLD_HEIGHT) return B_AIR;
     int cx = floordiv(x, CHUNK_SIZE), cz = floordiv(z, CHUNK_SIZE);

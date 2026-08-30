@@ -120,6 +120,10 @@ public:
     // Iterate all chunks (main thread only).
     void forEachChunk(const std::function<void(std::shared_ptr<Chunk>&, int, int)>& fn);
 
+    // Raw-pointer snapshot (avoids shared_ptr atomic ops per frame).
+    struct ChunkInfo { Chunk* c; int cx; int cz; };
+    void snapshotChunks(std::vector<ChunkInfo>& out);
+
     void markDirty(int cx, int cz);
 
     // Recorded block edits (x,y,z,blockId) for saving; x,y,z absolute coords.

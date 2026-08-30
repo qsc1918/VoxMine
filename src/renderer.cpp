@@ -742,14 +742,16 @@ bool Renderer::render(VkCtx& ctx, const Camera& cam, Player& player, Input& in, 
     // Upload pending chunk meshes BEFORE render pass (uploadPart does
     // vkCreateBuffer/vkAllocateMemory which must not run during render pass).
     if (world_) {
-        world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int, int) {
+        world_->snapshotChunks(snapshot_);
+        for (auto& si : snapshot_) {
+            Chunk* c = si.c;
             if (c->needsUpload.exchange(false)) {
                 std::lock_guard<std::mutex> lk(c->meshLock);
                 ChunkMeshData local = c->mesh;
                 uploadPart(ctx, *c, true, local.opaqueVerts, local.opaqueIdx);
                 uploadPart(ctx, *c, false, local.waterVerts, local.waterIdx);
             }
-        });
+        }
     }
 
     vkCmdBeginRenderPass(cb, &rp, VK_SUBPASS_CONTENTS_INLINE);
@@ -850,18 +852,11 @@ void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
     fr.extract(cachedVP_);
     VkCommandBuffer cb = ctx.cmds[curFrame_];
 
-    // Pass 1: draw ALL opaque geometry
-    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipe_);
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_[curFrame_], 0, nullptr);
-
     const float camX = cam.pos.x, camY = cam.pos.y, camZ = cam.pos.z;
     const float f2 = fogEndWorld_ * fogEndWorld_;
-    auto chunkCulled = [&](int cx, int cz, const Frustum& fr) {
+    auto chunkCulled = [&](int cx, int cz) {
         float minX = cx * 16.0f, minZ = cz * 16.0f;
         if (!fr.testAABB(minX, 0, minZ, minX + 16, WORLD_HEIGHT, minZ + 16)) return true;
-        // Fully fogged chunks render as a solid fog/sky colour (fog=1), so they are
-        // invisible. Cull any chunk whose nearest point is beyond the fog end to skip
-        // the wasted geometry at high render distances.
         if (f2 > 0.0f) {
             float nx = clampf(camX, minX, minX + 16);
             float ny = clampf(camY, 0.0f, (float)WORLD_HEIGHT);
@@ -872,26 +867,25 @@ void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
         return false;
     };
 
-    // Single traversal: collect visible chunks once (frustum + fog cull + state check
-    // under one mapLock acquisition) instead of iterating every chunk twice.
-    std::vector<std::tuple<std::shared_ptr<Chunk>, int, int>> visible;
+    // Collect visible chunks from the snapshot taken in render() — no lock needed.
+    struct VisChunk { Chunk* c; int cx; int cz; };
+    std::vector<VisChunk> visible;
     visible.reserve(512);
-    world_->forEachChunk([&](std::shared_ptr<Chunk>& c, int cx, int cz) {
-        if (c->state.load() < 2) return;
-        if (chunkCulled(cx, cz, fr)) return;
-        visible.emplace_back(c, cx, cz);
-    });
+    for (auto& si : snapshot_) {
+        if (si.c->state.load() < 2) continue;
+        if (chunkCulled(si.cx, si.cz)) continue;
+        visible.push_back({si.c, si.cx, si.cz});
+    }
 
     int draws = 0;
     // Pass 1: draw ALL opaque geometry
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipe_);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_[curFrame_], 0, nullptr);
     for (auto& v : visible) {
-        Chunk& c = *std::get<0>(v);
+        Chunk& c = *v.c;
         if (!c.opaqueBuf || !c.opaqueCount) continue;
         draws++;
-        int cx = std::get<1>(v), cz = std::get<2>(v);
-        Vec3 origin((float)(cx * 16), 0, (float)(cz * 16));
+        Vec3 origin((float)(v.cx * 16), 0, (float)(v.cz * 16));
         vkCmdPushConstants(cb, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
         VkBuffer vb = (VkBuffer)(uintptr_t)c.opaqueBuf;
         VkDeviceSize off = 0;
@@ -904,10 +898,9 @@ void Renderer::drawChunks(VkCtx& ctx, const Camera& cam) {
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipe_);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainLayout_, 0, 1, &terrainSet_[curFrame_], 0, nullptr);
     for (auto& v : visible) {
-        Chunk& c = *std::get<0>(v);
+        Chunk& c = *v.c;
         if (!c.waterBuf || !c.waterCount) continue;
-        int cx = std::get<1>(v), cz = std::get<2>(v);
-        Vec3 origin((float)(cx * 16), 0, (float)(cz * 16));
+        Vec3 origin((float)(v.cx * 16), 0, (float)(v.cz * 16));
         vkCmdPushConstants(cb, terrainLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &origin);
         VkBuffer vb = (VkBuffer)(uintptr_t)c.waterBuf;
         VkDeviceSize off = 0;

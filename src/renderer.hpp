@@ -152,4 +152,7 @@ private:
     static const uint8_t kInvBlocks[];
     static const int kInvCount;
     static const int kInvCols = 8;
+
+    // Reusable raw-pointer snapshot of world chunks (avoids shared_ptr per frame).
+    std::vector<World::ChunkInfo> snapshot_;
 };
