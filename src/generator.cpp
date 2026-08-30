@@ -84,6 +84,11 @@ void generateColumn(uint32_t seed, int cx, int cz, uint8_t* out) {
 
     int baseWX = cx * 16, baseWZ = cz * 16;
 
+    // Precompute per-column surface height for the cave pass (avoids a 16×16×128
+    // scan later). At this point the topmost non-air block per column is exactly
+    // `height` (≥5) or bedrock at y=4 for very low terrain (height<5).
+    int localTop[16][16];
+
     for (int lx = 0; lx < 16; lx++) {
         for (int lz = 0; lz < 16; lz++) {
             int wx = baseWX + lx, wz = baseWZ + lz;
@@ -97,6 +102,7 @@ void generateColumn(uint32_t seed, int cx, int cz, uint8_t* out) {
             float h = SEA_LEVEL + continents * 22.0f + hills * 8.0f + detail * 2.0f;
             int height = (int)h;
             height = std::clamp(height, 3, WORLD_HEIGHT - 1);
+            localTop[lx][lz] = height >= 5 ? height : 4;
 
             SurfaceInfo si = surfaceFor(tempN, moistN, wx, wz, height);
 
@@ -134,17 +140,7 @@ void generateColumn(uint32_t seed, int cx, int cz, uint8_t* out) {
         }
     }
 
-    // caves (3D) - precompute per-column surface height to avoid repeated scanning
-    int localTop[16][16];
-    for (int lx = 0; lx < 16; lx++) {
-        for (int lz = 0; lz < 16; lz++) {
-            localTop[lx][lz] = -1;
-            for (int yy = WORLD_HEIGHT - 1; yy >= 0; yy--) {
-                uint8_t b = ref(out, lx, yy, lz);
-                if (b != B_AIR && b != B_WATER) { localTop[lx][lz] = yy; break; }
-            }
-        }
-    }
+    // caves (3D) — localTop already computed from height during the column fill.
     for (int y = 3; y < 90; y++) {
         for (int lx = 0; lx < 16; lx++) {
             for (int lz = 0; lz < 16; lz++) {
