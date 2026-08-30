@@ -208,22 +208,20 @@ bool World::popTask(WorldTask& out) {
     std::unique_lock<std::mutex> lk(queueLock_);
     while (true) {
         if (!running_.load() && queue_.empty()) return false;
-        if (queue_.empty()) {
-            queueCV_.wait_for(lk, std::chrono::milliseconds(20));
-            continue;
-        }
-        out = queue_.top();
-        queue_.pop();
-        uint64_t key = chunkKey(out.cx, out.cz);
-        if (out.isMesh) {
-            queuedMesh_.erase(key);
-            meshing_.insert(key);
-        } else {
-            queuedGen_.erase(key);
-            generating_.insert(key);
-        }
-        return true;
+        if (!queue_.empty()) break;
+        queueCV_.wait(lk);
     }
+    out = queue_.top();
+    queue_.pop();
+    uint64_t key = chunkKey(out.cx, out.cz);
+    if (out.isMesh) {
+        queuedMesh_.erase(key);
+        meshing_.insert(key);
+    } else {
+        queuedGen_.erase(key);
+        generating_.insert(key);
+    }
+    return true;
 }
 
 void World::generateChunk(int cx, int cz, const std::shared_ptr<Chunk>& c) {
