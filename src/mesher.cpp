@@ -75,7 +75,14 @@ ChunkMeshData buildChunkMesh(const MeshView& view) {
     wv.reserve(512);
     wi.reserve(768);
 
-    for (int y = 0; y < WORLD_HEIGHT; y++) {
+    // Find the highest non-air block to skip the guaranteed-air region above.
+    int maxY = 0;
+    for (int z = 0; z < 16; z++)
+        for (int x = 0; x < 16; x++)
+            for (int y = WORLD_HEIGHT - 1; y > maxY; y--)
+                if (view.at(x, y, z) != B_AIR) { maxY = y; break; }
+
+    for (int y = 0; y <= maxY + 1 && y < WORLD_HEIGHT; y++) {
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
                 uint8_t id = view.at(x, y, z);
